@@ -308,6 +308,55 @@ function CleanMinimap:PositionAuraFrames()
 	end
 end
 
+-- Dungeon Finder eye (MiniMapLFGFrame). In 3.3.5a it is a child of
+-- MinimapBackdrop, so it already inherits MinimapCluster's scale, but Blizzard
+-- anchors it for the round border, which leaves it sitting over the left edge
+-- of the square map. Give it its own slot in the icon column, below the
+-- battleground icon, and size it from the "Icon size" option like the others.
+function CleanMinimap:UpdateLFGFrame()
+	if not MiniMapLFGFrame or not MiniMapBattlefieldFrame then
+		return
+	end
+	local size = 18
+	if self.db and self.db.profile then
+		size = tonumber(self.db.profile.IconScale) or 18
+	end
+
+	-- The eye artwork has transparent padding, so it is drawn 6 units larger
+	-- than the tracking/mail icons to look the same size. The button is 2 units
+	-- larger again (Blizzard uses 33 vs 30) to leave room for the hover glow.
+	MiniMapLFGFrame:SetWidth(size + 8)
+	MiniMapLFGFrame:SetHeight(size + 8)
+	if MiniMapLFGFrameIcon then
+		MiniMapLFGFrameIcon:SetWidth(size + 6)
+		MiniMapLFGFrameIcon:SetHeight(size + 6)
+	end
+	if MiniMapLFGFrameBorder then
+		MiniMapLFGFrameBorder:Hide()
+	end
+
+	-- The battleground button's centre is 1.5 units right of the line the
+	-- tracking and mail icons are centred on, so shift left by that. This also
+	-- keeps the eye clear of the map's edge at every icon size.
+	MiniMapLFGFrame:ClearAllPoints()
+	MiniMapLFGFrame:SetPoint("TOP", MiniMapBattlefieldFrame, "BOTTOM", -1.5, -3)
+end
+
+-- Blizzard parents the Dungeon Finder status popup (LFDSearchStatus, the
+-- "Assembling Group..." panel) to the eye button, so it inherits the minimap
+-- scale on top of the UI scale. Cancel that out so it is drawn at the normal
+-- UI scale, exactly as it would be without this addon.
+function CleanMinimap:UpdateLFDSearchStatusScale()
+	if not LFDSearchStatus or not UIParent then
+		return
+	end
+	local parent = LFDSearchStatus:GetParent()
+	local parentScale = parent and parent:GetEffectiveScale()
+	if parentScale and parentScale > 0 then
+		LFDSearchStatus:SetScale(UIParent:GetEffectiveScale() / parentScale)
+	end
+end
+
 function CleanMinimap:GetScale()
 	if not self.db.profile then
 		return 1
@@ -323,6 +372,7 @@ function CleanMinimap:SetScale(table, size)
 	MinimapCluster:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", 0, 0)
 	MinimapCluster:SetScale(size)
 	self:PositionAuraFrames()
+	self:UpdateLFDSearchStatusScale()
 end
 function CleanMinimap:GetIconScale()
 	if not self.db.profile then
@@ -346,6 +396,7 @@ function CleanMinimap:SetIconScale(table, size)
 	MiniMapBattlefieldFrame:SetWidth(self.db.profile.IconScale + 15);
 	MiniMapBattlefieldIcon:SetHeight(self.db.profile.IconScale + 14);
 	MiniMapBattlefieldIcon:SetWidth(self.db.profile.IconScale + 14);
+	self:UpdateLFGFrame()
 end
 
 function CleanMinimap:OnInitialize()
@@ -488,6 +539,15 @@ function CleanMinimap:OnInitialize()
 	MiniMapBattlefieldFrame:SetPoint("TOPLEFT", MiniMapMailFrame, "BOTTOMLEFT", 1, -3);
 	MiniMapBattlefieldBorder:Hide();
 
+	--Dungeon Finder eye, and its "Assembling Group..." popup
+	self:UpdateLFGFrame()
+	if LFDSearchStatus then
+		LFDSearchStatus:SetClampedToScreen(true)
+		LFDSearchStatus:HookScript("OnShow", function()
+			self:UpdateLFDSearchStatusScale()
+		end)
+	end
+
 	if (self.db.profile.ShowCoord) then
 		text:Show()
 	else
@@ -510,6 +570,7 @@ function CleanMinimap:OnInitialize()
 	self.db.profile.Scale = minimapScale
 	MinimapCluster:SetScale(minimapScale)
 	self:PositionAuraFrames()
+	self:UpdateLFDSearchStatusScale()
 
 	-- Blizzard can reposition the aura frames during frame-management and
 	-- aura/enchant transitions. Re-apply our anchors after those updates.

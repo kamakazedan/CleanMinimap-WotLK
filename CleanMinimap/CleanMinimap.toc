@@ -3,7 +3,7 @@
 ## Author: Alexia <washuu@gmail.com>, Valle
 ## SavedVariables: CleanMinimapDB
 ## Notes: Clean looking square minimap with many options.
-## Version: 1.6.2-fixed
+## Version: 1.6.3-fixed
 ## X-eMail: washuu@gmail.com
 ## X-Donate: PayPal: washuu@gmail.com
 ## X-Website: http://www.nonamestudios.com/flagRSP2.php

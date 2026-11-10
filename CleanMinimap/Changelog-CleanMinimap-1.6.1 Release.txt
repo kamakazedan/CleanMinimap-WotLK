@@ -35,4 +35,8 @@ Removed old slash command handler that was conflicting with Ace3 handler.
 CleanMinimap 1.6.2 fixed build (WoW 3.3.5a)
  - Anchored player buffs, debuffs, consolidated buffs and temporary enchants to the minimap cluster.
  - Kept native aura icon sizes while anchoring all aura frames to the scaled minimap edge.
- - Re-applied aura anchors after Blizzard frame management and aura/enchant transitions.\n
+ - Re-applied aura anchors after Blizzard frame management and aura/enchant transitions.
+
+CleanMinimap 1.6.3 fixed build (WoW 3.3.5a)
+ - Moved the Dungeon Finder eye into the icon column below the battleground icon, sized by the Icon size option.
+ - Counter-scaled the Dungeon Finder status popup so it no longer inherits the minimap scale.
