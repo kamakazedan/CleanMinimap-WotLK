@@ -1,4 +1,12 @@
-CleanMinimap 1.6.3 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+CleanMinimap 1.6.4 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+
+What changed in 1.6.4
+---------------------
+- The black square border no longer gets thicker as the minimap scale goes
+  above 100%. It stays the thickness it has at 100%, however large the map is.
+  At or below 100% it behaves as before.
+- The box behind the zone name above the square minimap has been removed; the
+  zone name is shown on its own.
 
 What changed in 1.6.3
 ---------------------

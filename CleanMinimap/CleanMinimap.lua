@@ -116,6 +116,8 @@ function GetMinimapShape()
 	return shape;
 end
 
+-- Backdrop for the black square border (CleanMinimapFrame). UpdateBezel()
+-- adjusts edgeSize and insets to suit the minimap scale.
 local backdrop = {
 	bgFile = "Interface\\ChatFrame\\ChatFrameBackground", tile =true, tileSize =4,
 	edgeFile = "Interface\\Addons\\CleanMinimap\\Texture\\Plain.tga", edgeSize = 4,
@@ -166,9 +168,7 @@ function CleanMinimap:SetUseSquare()
 		MinimapZoneTextButton:SetHeight(21)
 		MinimapZoneTextButton:SetPoint("BOTTOMLEFT", CleanMinimapFrame, "TOPLEFT", 0, 2)
 		MinimapZoneTextButton:SetPoint("BOTTOMRIGHT", CleanMinimapFrame, "TOPRIGHT", 0, 2)
-		MinimapZoneTextButton:SetBackdrop(backdrop)
-		MinimapZoneTextButton:SetBackdropColor(0,0,0,0.2)
-		MinimapZoneTextButton:SetBackdropBorderColor(0,0,0,0.6)
+		MinimapZoneTextButton:SetBackdrop(nil)
 		if (TimeManagerClockButton) then
 			TimeManagerClockButton:ClearAllPoints();
 			TimeManagerClockButton:SetPoint("CENTER", Minimap, "CENTER", 0, -76);
@@ -357,6 +357,33 @@ function CleanMinimap:UpdateLFDSearchStatusScale()
 	end
 end
 
+-- The black square border is a child of Minimap, so it grows with the minimap
+-- scale like everything else. Above 100% that makes it chunky, so thin it back
+-- down to the thickness it has at 100%: edge, gap and overlap onto the map
+-- are all divided by the scale. At or below 100% it is left as it was.
+function CleanMinimap:UpdateBezel()
+	local scale = 1
+	local uiScale = UIParent and UIParent:GetEffectiveScale()
+	if uiScale and uiScale > 0 then
+		scale = CleanMinimapFrame:GetEffectiveScale() / uiScale
+	end
+	local f = 1 / math.max(1, scale)
+
+	backdrop.edgeSize = 4 * f
+	backdrop.insets.left = 4 * f
+	backdrop.insets.right = 4 * f
+	backdrop.insets.top = 4 * f
+	backdrop.insets.bottom = 4 * f
+
+	CleanMinimapFrame:ClearAllPoints()
+	CleanMinimapFrame:SetPoint("TOPLEFT", Minimap, "TOPLEFT", -3 * f, 3 * f)
+	CleanMinimapFrame:SetPoint("BOTTOMRIGHT", Minimap, "BOTTOMRIGHT", 3 * f, -3 * f)
+	-- SetBackdrop resets the colours, so set them again every time.
+	CleanMinimapFrame:SetBackdrop(backdrop)
+	CleanMinimapFrame:SetBackdropColor(0,0,0,0)
+	CleanMinimapFrame:SetBackdropBorderColor(0,0,0,0.6)
+end
+
 function CleanMinimap:GetScale()
 	if not self.db.profile then
 		return 1
@@ -373,6 +400,7 @@ function CleanMinimap:SetScale(table, size)
 	MinimapCluster:SetScale(size)
 	self:PositionAuraFrames()
 	self:UpdateLFDSearchStatusScale()
+	self:UpdateBezel()
 end
 function CleanMinimap:GetIconScale()
 	if not self.db.profile then
@@ -417,13 +445,8 @@ function CleanMinimap:OnInitialize()
 	CleanMinimapFrame:SetScript("OnMouseWheel", function() self:Zoom() end)
 	
 	--Setting Up
-	CleanMinimapFrame:ClearAllPoints()
 	CleanMinimapFrame:EnableMouse(false)
-	CleanMinimapFrame:SetPoint("TOPLEFT", Minimap, "TOPLEFT",-3,3)
-	CleanMinimapFrame:SetPoint("BOTTOMRIGHT", Minimap, "BOTTOMRIGHT",3,-3)
-	CleanMinimapFrame:SetBackdrop(backdrop)
-	CleanMinimapFrame:SetBackdropColor(0,0,0,0)
-	CleanMinimapFrame:SetBackdropBorderColor(0,0,0,0.6)
+	self:UpdateBezel()
 
 	--Coords button
 	loc = CreateFrame("Button", nil, Minimap)
@@ -448,9 +471,7 @@ function CleanMinimap:OnInitialize()
 		MinimapZoneTextButton:SetHeight(21)
 		MinimapZoneTextButton:SetPoint("BOTTOMLEFT", CleanMinimapFrame, "TOPLEFT", 0, 2)
 		MinimapZoneTextButton:SetPoint("BOTTOMRIGHT", CleanMinimapFrame, "TOPRIGHT", 0, 2)
-		MinimapZoneTextButton:SetBackdrop(backdrop)
-		MinimapZoneTextButton:SetBackdropColor(0,0,0,0.2)
-		MinimapZoneTextButton:SetBackdropBorderColor(0,0,0,0.6)
+		MinimapZoneTextButton:SetBackdrop(nil)
 		MinimapZoneTextButton:SetScript("OnClick", ToggleMinimap)
 		MinimapBorder:Hide();
 		shape = "SQUARE";
@@ -571,6 +592,7 @@ function CleanMinimap:OnInitialize()
 	MinimapCluster:SetScale(minimapScale)
 	self:PositionAuraFrames()
 	self:UpdateLFDSearchStatusScale()
+	self:UpdateBezel()
 
 	-- Blizzard can reposition the aura frames during frame-management and
 	-- aura/enchant transitions. Re-apply our anchors after those updates.

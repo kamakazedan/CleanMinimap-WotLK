@@ -40,3 +40,7 @@ CleanMinimap 1.6.2 fixed build (WoW 3.3.5a)
 CleanMinimap 1.6.3 fixed build (WoW 3.3.5a)
  - Moved the Dungeon Finder eye into the icon column below the battleground icon, sized by the Icon size option.
  - Counter-scaled the Dungeon Finder status popup so it no longer inherits the minimap scale.
+
+CleanMinimap 1.6.4 fixed build (WoW 3.3.5a)
+ - Kept the square border at its 100% thickness when the minimap scale is above 100%.
+ - Removed the box behind the zone name in square mode.
