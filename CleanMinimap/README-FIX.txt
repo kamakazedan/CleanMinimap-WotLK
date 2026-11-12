@@ -1,4 +1,25 @@
-CleanMinimap 1.6.4 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+CleanMinimap 1.6.5 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+
+What changed in 1.6.5
+---------------------
+- The map keeps the same gap to the right and top edges of the screen at every
+  scale (17 UI units, Blizzard's gap at 100%). The cluster stays pinned to the
+  top-right corner and is sized to wrap the map, so the quest tracker,
+  durability figure and buffs follow the map instead of drifting away.
+- The zone name sits just above the map (or its border), centred on it, in
+  both square and round mode. Its top stays 5 UI units from the top of the
+  screen. The box behind it is gone in round mode too.
+- Round mode uses a thin black ring like the square bezel, instead of
+  Blizzard's gold border. Like the bezel, it keeps its 100% thickness above
+  100% scale. Mouse-wheel zoom now also works in round mode.
+- New option "Show border" turns the square bezel / round ring off.
+- New option "Minimap opacity" (10-100%) fades the whole minimap: map, border,
+  icons and zone name. Indoors it stays fully opaque, because the game can't
+  draw the indoor map see-through. The Dungeon Finder popup is moved to
+  UIParent so it is never faded or scaled.
+- Clicking the zone name hides/shows the map in round mode as well as square.
+- New texture files (texture/Ring1-5.tga), so restart the game fully after
+  installing; /reload won't pick them up.
 
 What changed in 1.6.4
 ---------------------

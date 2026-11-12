@@ -6,12 +6,14 @@ local shape = "SQUARE";
 CleanMinimap.defaults = {
 	profile = {
 		UseSquare = true,
+		ShowBorder = true,
 		ShowCoord = true,
 		ShowZone = true,
 		ShowDura = true,
 		ShowTrack = true,
 		ShowMail = true,
 		Scale = 1,
+		Alpha = 1,
 		IconScale = 18,
 	}
 }
@@ -37,6 +39,15 @@ CleanMinimap.options = {
 					set = "SetUseSquare",
 					width = 'full',
 					order = 1,
+				},
+				ShowBorder = {
+					type = 'toggle',
+					name = "Show border",
+					desc = "Toggle the thin black border around the minimap.",
+					get = "GetShowBorder",
+					set = "SetShowBorder",
+					width = 'full',
+					order = 1.5,
 				},
 				ShowCoord = {
 					type = 'toggle',
@@ -95,6 +106,19 @@ CleanMinimap.options = {
 					width = 'full',
 					order = 7,
 				},
+				Alpha = {
+					type = 'range',
+					name = "Minimap opacity",
+					desc = "Makes the minimap, its border, icons and zone header see-through. Indoors the minimap stays fully opaque, because the game cannot draw the indoor map see-through.",
+					max = 1,
+					min = 0.1,
+					step = 0.05,
+					isPercent = true,
+					get = "GetMinimapAlpha",
+					set = "SetMinimapAlpha",
+					width = 'full',
+					order = 7.5,
+				},
 				IconScale = {
 					type = 'range',
 					name = "Icon size",
@@ -116,7 +140,7 @@ function GetMinimapShape()
 	return shape;
 end
 
--- Backdrop for the black square border (CleanMinimapFrame). UpdateBezel()
+-- Backdrop for the black square border (CleanMinimapFrame). UpdateBorder()
 -- adjusts edgeSize and insets to suit the minimap scale.
 local backdrop = {
 	bgFile = "Interface\\ChatFrame\\ChatFrameBackground", tile =true, tileSize =4,
@@ -132,6 +156,51 @@ local backdropmail = {
 
 local CleanMinimapFrame = CreateFrame("Frame", nil, Minimap);
 local loc, text, track;
+
+-- Layout. These gaps stay the same on screen at every minimap scale, so they
+-- are in UIParent units and get divided by the scale before use.
+local EDGE_GAP = 17        -- screen's right (and top, with no zone name) edge to the map; Blizzard's 100% gap
+local HEADER_TOP_GAP = 5   -- screen's top edge to the zone name
+local ICON_MARGIN = 7      -- left of the icon column, before the buffs
+-- These scale with the minimap, in minimap units.
+local ZONE_HEIGHT = 12     -- the zone name's text box (Blizzard's size)
+local ZONE_GAP = 2         -- zone name to the border, or to the map with no border
+local BOTTOM_SPACE = 30    -- below the map, for the clock; Blizzard's default
+
+-- Round border: four quarter-ring textures around the map's centre. A
+-- texture's ring thickness is fixed relative to its size, so there are five
+-- (Ring1 = 100% scale ... Ring5 = 300%) and UpdateBorder picks the closest.
+-- Each matches the square bezel: 4f thick, 3f outside the map's edge and 1f
+-- over it, where f = 1/scale above 100%. The ring's outer edge is 252/256 of
+-- the way to each texture's edge.
+local RING_EDGE = 252 / 256
+local ringRatios = {}  -- thickness / outer radius, as in make_rings.py
+for k = 1, 5 do
+	local f = 3 ^ (-(k - 1) / 4)
+	ringRatios[k] = 4 * f / (70 + 3 * f)
+end
+local ringQuads = {}
+do
+	-- point on the texture that sits on the map's centre, then tex coords
+	-- (mirrored copies of the one top-right quarter).
+	local quads = {
+		{ "BOTTOMLEFT",  0, 1, 0, 1 },  -- top-right quarter
+		{ "BOTTOMRIGHT", 1, 0, 0, 1 },  -- top-left
+		{ "TOPLEFT",     0, 1, 1, 0 },  -- bottom-right
+		{ "TOPRIGHT",    1, 0, 1, 0 },  -- bottom-left
+	}
+	for i, q in ipairs(quads) do
+		local tex = CleanMinimapFrame:CreateTexture(nil, "ARTWORK")
+		tex:SetPoint(q[1], Minimap, "CENTER", 0, 0)
+		-- Kept so they can be re-applied after each SetTexture.
+		tex.l, tex.r, tex.t, tex.b = q[2], q[3], q[4], q[5]
+		tex:SetTexCoord(q[2], q[3], q[4], q[5])
+		tex:SetVertexColor(0, 0, 0)
+		tex:SetAlpha(0.6)
+		tex:Hide()
+		ringQuads[i] = tex
+	end
+end
 
 function MessageCoords()
 	if (UnitInRaid("player")) then
@@ -149,56 +218,15 @@ function CleanMinimap:GetUseSquare()
 end
 function CleanMinimap:SetUseSquare()
 	self.db.profile.UseSquare = not self.db.profile.UseSquare
-	if (self.db.profile.UseSquare) then
-		MinimapBorder:Hide();
-		shape = "SQUARE";
-		Minimap:SetMaskTexture("Interface\\AddOns\\CleanMinimap\\texture\\Mask");
-		CleanMinimapFrame:Show();
-		loc:SetWidth(60);
-		text:SetWidth(60);
-		loc:SetPoint("BOTTOMLEFT", CleanMinimapFrame, "BOTTOMLEFT", 3, 3)
-		if (self.db.profile.ShowZone) then
-			MinimapBorderTop:Hide();
-			MinimapZoneTextButton:Show()
-		else
-			MinimapBorderTop:Hide();
-			MinimapZoneTextButton:Hide()
-		end
-		MinimapZoneTextButton:ClearAllPoints()
-		MinimapZoneTextButton:SetHeight(21)
-		MinimapZoneTextButton:SetPoint("BOTTOMLEFT", CleanMinimapFrame, "TOPLEFT", 0, 2)
-		MinimapZoneTextButton:SetPoint("BOTTOMRIGHT", CleanMinimapFrame, "TOPRIGHT", 0, 2)
-		MinimapZoneTextButton:SetBackdrop(nil)
-		if (TimeManagerClockButton) then
-			TimeManagerClockButton:ClearAllPoints();
-			TimeManagerClockButton:SetPoint("CENTER", Minimap, "CENTER", 0, -76);
-		end
-	else
-		MinimapBorder:Show();
-		shape = "CIRCULAR";
-		Minimap:SetMaskTexture("Textures\\MinimapMask");
-		CleanMinimapFrame:Hide();
-		loc:SetWidth(CleanMinimapFrame:GetWidth());
-		text:SetWidth(CleanMinimapFrame:GetWidth());
-		loc:SetPoint("BOTTOMLEFT", CleanMinimapFrame, "BOTTOMLEFT", 0, 11)
-		if (self.db.profile.ShowZone) then
-			MinimapBorderTop:Show();
-			MinimapZoneTextButton:Show()
-		else
-			MinimapBorderTop:Hide();
-			MinimapZoneTextButton:Hide()
-		end
-		MinimapZoneTextButton:ClearAllPoints()
-		MinimapZoneTextButton:SetHeight(12)
-		MinimapZoneTextButton:SetPoint("CENTER", MinimapCluster, "CENTER", -3, 83)
-		MinimapZoneTextButton:SetBackdrop(nil)
-		MinimapZoneTextButton:SetBackdropColor(0,0,0,0)
-		MinimapZoneTextButton:SetBackdropBorderColor(0,0,0,0)
-		if (TimeManagerClockButton) then
-			TimeManagerClockButton:ClearAllPoints();
-			TimeManagerClockButton:SetPoint("CENTER", Minimap, "CENTER", 0, -68);
-		end
-	end
+	self:ApplyShape()
+	self:UpdateLayout()
+end
+function CleanMinimap:GetShowBorder()
+	return self.db.profile.ShowBorder
+end
+function CleanMinimap:SetShowBorder()
+	self.db.profile.ShowBorder = not self.db.profile.ShowBorder
+	self:UpdateLayout()
 end
 function CleanMinimap:GetShowCoord()
 	return self.db.profile.ShowCoord
@@ -216,23 +244,7 @@ function CleanMinimap:GetShowZone()
 end
 function CleanMinimap:SetShowZone()
 	self.db.profile.ShowZone = not self.db.profile.ShowZone
-	if (self.db.profile.UseSquare) then
-		if (self.db.profile.ShowZone) then
-			MinimapBorderTop:Hide();
-			MinimapZoneTextButton:Show()
-		else
-			MinimapBorderTop:Hide();
-			MinimapZoneTextButton:Hide()
-		end
-	else
-		if (self.db.profile.ShowZone) then
-			MinimapBorderTop:Show();
-			MinimapZoneTextButton:Show()
-		else
-			MinimapBorderTop:Hide();
-			MinimapZoneTextButton:Hide()
-		end
-	end
+	self:UpdateLayout()
 end
 
 function CleanMinimap:GetShowDura()
@@ -342,10 +354,10 @@ function CleanMinimap:UpdateLFGFrame()
 	MiniMapLFGFrame:SetPoint("TOP", MiniMapBattlefieldFrame, "BOTTOM", -1.5, -3)
 end
 
--- Blizzard parents the Dungeon Finder status popup (LFDSearchStatus, the
--- "Assembling Group..." panel) to the eye button, so it inherits the minimap
--- scale on top of the UI scale. Cancel that out so it is drawn at the normal
--- UI scale, exactly as it would be without this addon.
+-- Keep the Dungeon Finder status popup (LFDSearchStatus, the "Assembling
+-- Group..." panel) at the normal UI scale. OnInitialize moves it from the eye
+-- to UIParent, which makes this 1; it is still checked each time it opens in
+-- case something parents it back under the scaled minimap.
 function CleanMinimap:UpdateLFDSearchStatusScale()
 	if not LFDSearchStatus or not UIParent then
 		return
@@ -357,31 +369,199 @@ function CleanMinimap:UpdateLFDSearchStatusScale()
 	end
 end
 
--- The black square border is a child of Minimap, so it grows with the minimap
--- scale like everything else. Above 100% that makes it chunky, so thin it back
--- down to the thickness it has at 100%: edge, gap and overlap onto the map
--- are all divided by the scale. At or below 100% it is left as it was.
-function CleanMinimap:UpdateBezel()
-	local scale = 1
-	local uiScale = UIParent and UIParent:GetEffectiveScale()
-	if uiScale and uiScale > 0 then
-		scale = CleanMinimapFrame:GetEffectiveScale() / uiScale
+-- Square or round: map mask, the shape other addons ask for, coordinates and
+-- clock. Blizzard's round border and zone-name bar are replaced by our own
+-- border in both shapes.
+function CleanMinimap:ApplyShape()
+	MinimapBorder:Hide()
+	MinimapBorderTop:Hide()
+	-- Always shown, border or not: it catches the mouse wheel for zooming.
+	CleanMinimapFrame:Show()
+	loc:ClearAllPoints()
+	if self.db.profile.UseSquare then
+		shape = "SQUARE"
+		Minimap:SetMaskTexture("Interface\\AddOns\\CleanMinimap\\texture\\Mask")
+		loc:SetWidth(60)
+		text:SetWidth(60)
+		loc:SetPoint("BOTTOMLEFT", Minimap, "BOTTOMLEFT", 0, 0)
+	else
+		shape = "CIRCULAR"
+		Minimap:SetMaskTexture("Textures\\MinimapMask")
+		loc:SetWidth(Minimap:GetWidth())
+		text:SetWidth(Minimap:GetWidth())
+		loc:SetPoint("BOTTOM", Minimap, "BOTTOM", 0, 8)
 	end
-	local f = 1 / math.max(1, scale)
+	if TimeManagerClockButton then
+		TimeManagerClockButton:ClearAllPoints()
+		TimeManagerClockButton:SetPoint("CENTER", Minimap, "CENTER", 0, self.db.profile.UseSquare and -76 or -68)
+	end
+end
 
-	backdrop.edgeSize = 4 * f
-	backdrop.insets.left = 4 * f
-	backdrop.insets.right = 4 * f
-	backdrop.insets.top = 4 * f
-	backdrop.insets.bottom = 4 * f
-
+-- The square bezel or round ring. f is 1/scale above 100% (1 otherwise), so
+-- the border keeps the thickness it has at 100% however big the map gets.
+-- Returns how far the border reaches beyond the map's edge, in minimap units.
+function CleanMinimap:UpdateBorder(f)
+	local p = self.db.profile
 	CleanMinimapFrame:ClearAllPoints()
 	CleanMinimapFrame:SetPoint("TOPLEFT", Minimap, "TOPLEFT", -3 * f, 3 * f)
 	CleanMinimapFrame:SetPoint("BOTTOMRIGHT", Minimap, "BOTTOMRIGHT", 3 * f, -3 * f)
-	-- SetBackdrop resets the colours, so set them again every time.
-	CleanMinimapFrame:SetBackdrop(backdrop)
-	CleanMinimapFrame:SetBackdropColor(0,0,0,0)
-	CleanMinimapFrame:SetBackdropBorderColor(0,0,0,0.6)
+
+	local reach = 0
+	if p.ShowBorder and p.UseSquare then
+		reach = 3 * f
+		backdrop.edgeSize = 4 * f
+		backdrop.insets.left = 4 * f
+		backdrop.insets.right = 4 * f
+		backdrop.insets.top = 4 * f
+		backdrop.insets.bottom = 4 * f
+		-- SetBackdrop resets the colours, so set them again every time.
+		CleanMinimapFrame:SetBackdrop(backdrop)
+		CleanMinimapFrame:SetBackdropColor(0,0,0,0)
+		CleanMinimapFrame:SetBackdropBorderColor(0,0,0,0.6)
+	else
+		CleanMinimapFrame:SetBackdrop(nil)
+	end
+
+	if p.ShowBorder and not p.UseSquare then
+		local half = Minimap:GetWidth() / 2
+		local want = 4 * f / (half + 3 * f)
+		local best, bestDiff = 1, nil
+		for k, r in ipairs(ringRatios) do
+			local diff = math.abs(math.log(want / r))
+			if not bestDiff or diff < bestDiff then
+				best, bestDiff = k, diff
+			end
+		end
+		-- Size the ring so its inner edge is always 1f over the map's edge,
+		-- leaving no gap at the rim whichever texture is closest.
+		local outer = (half - f) / (1 - ringRatios[best])
+		local size = outer / RING_EDGE
+		reach = outer - half
+		for _, tex in ipairs(ringQuads) do
+			tex:SetTexture("Interface\\AddOns\\CleanMinimap\\texture\\Ring" .. best)
+			tex:SetTexCoord(tex.l, tex.r, tex.t, tex.b)
+			tex:SetVertexColor(0, 0, 0)
+			tex:SetAlpha(0.6)
+			tex:SetWidth(size)
+			tex:SetHeight(size)
+			tex:Show()
+		end
+	else
+		for _, tex in ipairs(ringQuads) do
+			tex:Hide()
+		end
+	end
+	return reach
+end
+
+-- Positions everything from the scale and options. The cluster stays pinned to
+-- the screen's top-right corner, because Blizzard docks the quest tracker,
+-- durability figure and boss/arena frames under its bottom-right corner. It is
+-- sized to wrap the map, and the map sits inside it so its gaps to the screen
+-- edges stay the same on screen at every scale.
+function CleanMinimap:UpdateLayout()
+	if not self.db or not self.db.profile then
+		return
+	end
+	-- Boss and arena frames are protected and anchored to the cluster, so it
+	-- can't be resized in combat. Do it as soon as combat ends.
+	if InCombatLockdown() then
+		self.layoutPending = true
+		self:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
+	end
+	self.layoutPending = nil
+	local p = self.db.profile
+
+	local scale = math.max(0.1, math.min(3, tonumber(p.Scale) or 1))
+	p.Scale = scale
+	MinimapCluster:ClearAllPoints()
+	MinimapCluster:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", 0, 0)
+	MinimapCluster:SetScale(scale)
+
+	-- The map's scale relative to the UI (this also covers another addon
+	-- scaling Minimap itself).
+	local s = scale
+	local uiScale = UIParent:GetEffectiveScale()
+	if uiScale and uiScale > 0 then
+		s = Minimap:GetEffectiveScale() / uiScale
+	end
+	local f = 1 / math.max(1, s)
+
+	local border = self:UpdateBorder(f)
+
+	-- Zone name: centred over the map, just above the border.
+	MinimapBorderTop:Hide()
+	MinimapZoneTextButton:ClearAllPoints()
+	MinimapZoneTextButton:SetWidth(150)
+	MinimapZoneTextButton:SetHeight(ZONE_HEIGHT)
+	MinimapZoneTextButton:SetPoint("BOTTOM", Minimap, "TOP", 0, border + ZONE_GAP)
+	MinimapZoneText:ClearAllPoints()
+	MinimapZoneText:SetPoint("CENTER", MinimapZoneTextButton, "CENTER", 0, 0)
+	if p.ShowZone then
+		MinimapZoneTextButton:Show()
+	else
+		MinimapZoneTextButton:Hide()
+	end
+
+	-- The map's offset inside the cluster, in minimap units: the fixed
+	-- on-screen gaps divided by the scale, plus the zone name and border,
+	-- which scale with the map.
+	local top
+	if p.ShowZone then
+		top = HEADER_TOP_GAP / s + ZONE_HEIGHT + ZONE_GAP + border
+	else
+		top = EDGE_GAP / s
+	end
+	local right = EDGE_GAP / s
+	Minimap:ClearAllPoints()
+	Minimap:SetPoint("TOPRIGHT", MinimapCluster, "TOPRIGHT", -right, -top)
+
+	-- Blizzard anchors these to the cluster. Keep them where they normally
+	-- sit relative to the map.
+	MinimapBackdrop:ClearAllPoints()
+	MinimapBackdrop:SetPoint("CENTER", Minimap, "CENTER", -9, -24)
+	if MiniMapInstanceDifficulty then
+		MiniMapInstanceDifficulty:ClearAllPoints()
+		MiniMapInstanceDifficulty:SetPoint("TOPLEFT", Minimap, "TOPLEFT", -13, 5)
+	end
+
+	-- Wrap the icon column, map and gaps, keeping Blizzard's space below the
+	-- map for the clock. The buffs sit just left of this.
+	local iconSize = tonumber(p.IconScale) or 18
+	local left = 10 + iconSize + ICON_MARGIN / s
+	MinimapCluster:SetWidth(left + Minimap:GetWidth() + right)
+	MinimapCluster:SetHeight(top + Minimap:GetHeight() + BOTTOM_SPACE)
+
+	self:PositionAuraFrames()
+	self:UpdateLFDSearchStatusScale()
+end
+
+function CleanMinimap:PLAYER_REGEN_ENABLED()
+	self:UnregisterEvent("PLAYER_REGEN_ENABLED")
+	if self.layoutPending then
+		self:UpdateLayout()
+	end
+end
+
+function CleanMinimap:GetMinimapAlpha()
+	return self.db.profile.Alpha or 1
+end
+function CleanMinimap:SetMinimapAlpha(info, value)
+	self.db.profile.Alpha = math.max(0.1, math.min(1, tonumber(value) or 1))
+	self:UpdateAlpha()
+end
+-- Opacity for the whole minimap. The game can't draw the indoor minimap
+-- see-through (the map goes blank), so it stays fully opaque indoors.
+function CleanMinimap:UpdateAlpha()
+	if not self.db or not self.db.profile then
+		return
+	end
+	local alpha = tonumber(self.db.profile.Alpha) or 1
+	if IsIndoors() then
+		alpha = 1
+	end
+	MinimapCluster:SetAlpha(alpha)
 end
 
 function CleanMinimap:GetScale()
@@ -391,16 +571,9 @@ function CleanMinimap:GetScale()
 	return self.db.profile.Scale or 1
 end
 function CleanMinimap:SetScale(table, size)
-	-- Keep the cluster anchored by its top-right corner while resizing.
 	size = tonumber(size) or 1
-	size = math.max(0.1, math.min(3, size))
-	self.db.profile.Scale = size
-	MinimapCluster:ClearAllPoints()
-	MinimapCluster:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", 0, 0)
-	MinimapCluster:SetScale(size)
-	self:PositionAuraFrames()
-	self:UpdateLFDSearchStatusScale()
-	self:UpdateBezel()
+	self.db.profile.Scale = math.max(0.1, math.min(3, size))
+	self:UpdateLayout()
 end
 function CleanMinimap:GetIconScale()
 	if not self.db.profile then
@@ -425,6 +598,7 @@ function CleanMinimap:SetIconScale(table, size)
 	MiniMapBattlefieldIcon:SetHeight(self.db.profile.IconScale + 14);
 	MiniMapBattlefieldIcon:SetWidth(self.db.profile.IconScale + 14);
 	self:UpdateLFGFrame()
+	self:UpdateLayout()
 end
 
 function CleanMinimap:OnInitialize()
@@ -444,9 +618,8 @@ function CleanMinimap:OnInitialize()
 	CleanMinimapFrame:EnableMouseWheel(true)
 	CleanMinimapFrame:SetScript("OnMouseWheel", function() self:Zoom() end)
 	
-	--Setting Up
+	--Setting Up (border and position are set by UpdateLayout below)
 	CleanMinimapFrame:EnableMouse(false)
-	self:UpdateBezel()
 
 	--Coords button
 	loc = CreateFrame("Button", nil, Minimap)
@@ -462,54 +635,11 @@ function CleanMinimap:OnInitialize()
 	text:SetPoint("TOP", loc)
 	text:SetJustifyH("CENTER")
 
-	--Move zone button
-	MinimapZoneTextButton:ClearAllPoints()
-	MinimapZoneText:ClearAllPoints()
-	MinimapZoneText:SetPoint("CENTER", MinimapZoneTextButton,"CENTER",0,1)
-	if (self.db.profile.UseSquare) then
-		MinimapZoneTextButton:ClearAllPoints()
-		MinimapZoneTextButton:SetHeight(21)
-		MinimapZoneTextButton:SetPoint("BOTTOMLEFT", CleanMinimapFrame, "TOPLEFT", 0, 2)
-		MinimapZoneTextButton:SetPoint("BOTTOMRIGHT", CleanMinimapFrame, "TOPRIGHT", 0, 2)
-		MinimapZoneTextButton:SetBackdrop(nil)
-		MinimapZoneTextButton:SetScript("OnClick", ToggleMinimap)
-		MinimapBorder:Hide();
-		shape = "SQUARE";
-		Minimap:SetMaskTexture("Interface\\AddOns\\CleanMinimap\\texture\\Mask");
-		CleanMinimapFrame:Show();
-		loc:SetWidth(60);
-		text:SetWidth(60);
-		loc:SetPoint("BOTTOMLEFT", CleanMinimapFrame, "BOTTOMLEFT", 3, 3)
-		if (self.db.profile.ShowZone) then
-			MinimapBorderTop:Hide();
-			MinimapZoneTextButton:Show();
-		else
-			MinimapBorderTop:Hide();
-			MinimapZoneTextButton:Hide();
-		end
-	else
-		MinimapZoneTextButton:ClearAllPoints()
-		MinimapZoneTextButton:SetHeight(12)
-		MinimapZoneTextButton:SetPoint("CENTER", MinimapCluster, "CENTER", -3, 83)
-		MinimapZoneTextButton:SetBackdrop(nil)
-		MinimapZoneTextButton:SetBackdropColor(0,0,0,0)
-		MinimapZoneTextButton:SetBackdropBorderColor(0,0,0,0)
-		MinimapBorder:Show();
-		shape = "CIRCULAR";
-		Minimap:SetMaskTexture("Textures\\MinimapMask");
-		CleanMinimapFrame:Hide();
-		loc:SetWidth(CleanMinimapFrame:GetWidth());
-		text:SetWidth(CleanMinimapFrame:GetWidth());
-		loc:SetPoint("BOTTOMLEFT", CleanMinimapFrame, "BOTTOMLEFT", 0, 11)
-		if (self.db.profile.ShowZone) then
-			MinimapBorderTop:Show();
-			MinimapZoneTextButton:Show();
-		else
-			MinimapBorderTop:Hide();
-			MinimapZoneTextButton:Hide();
-		end
-	end
-	
+	--Zone name: clicking it hides/shows the map, in either shape. Its
+	--position is set by UpdateLayout.
+	MinimapZoneTextButton:SetScript("OnClick", ToggleMinimap)
+	self:ApplyShape()
+
 -- The minimap is intentionally not made movable. Keeping MinimapCluster's
 -- TOPRIGHT anchor means SetScale grows/shrinks it inward from the screen edge.
 -- We also leave Blizzard's original Minimap mouse-up handler untouched.
@@ -560,13 +690,23 @@ function CleanMinimap:OnInitialize()
 	MiniMapBattlefieldFrame:SetPoint("TOPLEFT", MiniMapMailFrame, "BOTTOMLEFT", 1, -3);
 	MiniMapBattlefieldBorder:Hide();
 
-	--Dungeon Finder eye, and its "Assembling Group..." popup
+	--Dungeon Finder eye, and its "Assembling Group..." popup. Blizzard
+	--parents the popup to the eye, so it would take on the minimap's scale
+	--and opacity. Give it to UIParent instead (it still anchors to the eye),
+	--and hide it whenever the eye hides, as it did as a child.
 	self:UpdateLFGFrame()
 	if LFDSearchStatus then
+		LFDSearchStatus:SetParent(UIParent)
+		LFDSearchStatus:SetFrameStrata("TOOLTIP")
 		LFDSearchStatus:SetClampedToScreen(true)
 		LFDSearchStatus:HookScript("OnShow", function()
 			self:UpdateLFDSearchStatusScale()
 		end)
+		if MiniMapLFGFrame then
+			MiniMapLFGFrame:HookScript("OnHide", function()
+				LFDSearchStatus:Hide()
+			end)
+		end
 	end
 
 	if (self.db.profile.ShowCoord) then
@@ -586,13 +726,9 @@ function CleanMinimap:OnInitialize()
 	else
 		MiniMapTracking:Hide();
 	end
-	local minimapScale = tonumber(self.db.profile.Scale) or 1
-	minimapScale = math.max(0.1, math.min(3, minimapScale))
-	self.db.profile.Scale = minimapScale
-	MinimapCluster:SetScale(minimapScale)
-	self:PositionAuraFrames()
-	self:UpdateLFDSearchStatusScale()
-	self:UpdateBezel()
+	-- Scale, border, zone name, map position and cluster size.
+	self:UpdateLayout()
+	self:UpdateAlpha()
 
 	-- Blizzard can reposition the aura frames during frame-management and
 	-- aura/enchant transitions. Re-apply our anchors after those updates.
@@ -627,6 +763,9 @@ function CleanMinimap:OnEnable()
 	self:RegisterEvent("PLAYER_LOGIN")
 	self:RegisterEvent("PLAYER_ENTERING_WORLD")
 	self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+	-- Indoor/outdoor changes, for the opacity.
+	self:RegisterEvent("ZONE_CHANGED_INDOORS")
+	self:RegisterEvent("MINIMAP_UPDATE_ZOOM")
 end
 
 function CleanMinimap:OnDisable()
@@ -640,11 +779,22 @@ function CleanMinimap:PLAYER_LOGIN()
 end
 
 function CleanMinimap:PLAYER_ENTERING_WORLD()
+	self:UpdateLayout()
 	self:PositionAuraFrames()
+	self:UpdateAlpha()
 end
 
 function CleanMinimap:ZONE_CHANGED_NEW_AREA()
 	SetMapToCurrentZone()
+	self:UpdateAlpha()
+end
+
+function CleanMinimap:ZONE_CHANGED_INDOORS()
+	self:UpdateAlpha()
+end
+
+function CleanMinimap:MINIMAP_UPDATE_ZOOM()
+	self:UpdateAlpha()
 end
 
 --Mousewheel zoom

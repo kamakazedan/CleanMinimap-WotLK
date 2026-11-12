@@ -44,3 +44,11 @@ CleanMinimap 1.6.3 fixed build (WoW 3.3.5a)
 CleanMinimap 1.6.4 fixed build (WoW 3.3.5a)
  - Kept the square border at its 100% thickness when the minimap scale is above 100%.
  - Removed the box behind the zone name in square mode.
+
+CleanMinimap 1.6.5 fixed build (WoW 3.3.5a)
+ - Kept the map's gap to the screen's right and top edges constant at every scale; the cluster now wraps the map.
+ - Anchored the zone name just above the map/border, centred, with no box, in both shapes.
+ - Replaced Blizzard's round border with a thin black ring (texture/Ring1-5.tga) that keeps its 100% thickness.
+ - Added "Show border" and "Minimap opacity" options (opacity is full indoors).
+ - Moved the Dungeon Finder popup to UIParent so minimap scale/opacity never apply to it.
+ - Mouse-wheel zoom and zone-name click now work in round mode too.
