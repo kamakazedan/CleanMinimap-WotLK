@@ -109,7 +109,7 @@ CleanMinimap.options = {
 				Alpha = {
 					type = 'range',
 					name = "Minimap opacity",
-					desc = "Makes the minimap, its border, icons and zone header see-through. Indoors the minimap stays fully opaque, because the game cannot draw the indoor map see-through.",
+					desc = "Makes the minimap, its border, icons and zone header see-through. Inside buildings, dungeons and cities such as Orgrimmar the minimap stays fully opaque, because the game cannot draw those maps see-through.",
 					max = 1,
 					min = 0.1,
 					step = 0.05,
@@ -551,14 +551,47 @@ function CleanMinimap:SetMinimapAlpha(info, value)
 	self.db.profile.Alpha = math.max(0.1, math.min(1, tonumber(value) or 1))
 	self:UpdateAlpha()
 end
--- Opacity for the whole minimap. The game can't draw the indoor minimap
--- see-through (the map goes blank), so it stays fully opaque indoors.
+-- Is the minimap drawing an indoor-style map? Buildings and dungeons do, and
+-- so do cities such as Orgrimmar even where IsIndoors() says you're outside.
+-- The minimap keeps separate zoom levels for outdoor and indoor maps (the
+-- minimapZoom and minimapInsideZoom settings); whichever one matches the
+-- current zoom is the mode it is in. If both are the same, step the zoom for
+-- a moment so they differ, then put it back. This is the check the Astrolabe
+-- map library uses; SetZoom does not fire MINIMAP_UPDATE_ZOOM, so it can't
+-- loop, but guard against re-entry anyway.
+local checkingMinimapMode = false
+local function MinimapInIndoorMode()
+	if checkingMinimapMode then
+		return false
+	end
+	checkingMinimapMode = true
+	local zoom = Minimap:GetZoom()
+	local stepped = false
+	if GetCVar("minimapZoom") == GetCVar("minimapInsideZoom") then
+		if zoom < 2 then
+			Minimap:SetZoom(zoom + 1)
+		else
+			Minimap:SetZoom(zoom - 1)
+		end
+		stepped = true
+	end
+	local indoor = tonumber(GetCVar("minimapZoom")) ~= Minimap:GetZoom()
+	if stepped then
+		Minimap:SetZoom(zoom)
+	end
+	checkingMinimapMode = false
+	return indoor
+end
+
+-- Opacity for the whole minimap. The game can't draw an indoor-style map
+-- see-through (the map goes blank and only a dark see-through square is
+-- left), so the minimap stays fully opaque whenever it is showing one.
 function CleanMinimap:UpdateAlpha()
 	if not self.db or not self.db.profile then
 		return
 	end
 	local alpha = tonumber(self.db.profile.Alpha) or 1
-	if IsIndoors() then
+	if alpha < 1 and (IsIndoors() or MinimapInIndoorMode()) then
 		alpha = 1
 	end
 	MinimapCluster:SetAlpha(alpha)
@@ -763,7 +796,8 @@ function CleanMinimap:OnEnable()
 	self:RegisterEvent("PLAYER_LOGIN")
 	self:RegisterEvent("PLAYER_ENTERING_WORLD")
 	self:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-	-- Indoor/outdoor changes, for the opacity.
+	-- Indoor/outdoor and area changes, for the opacity.
+	self:RegisterEvent("ZONE_CHANGED")
 	self:RegisterEvent("ZONE_CHANGED_INDOORS")
 	self:RegisterEvent("MINIMAP_UPDATE_ZOOM")
 end
@@ -786,6 +820,10 @@ end
 
 function CleanMinimap:ZONE_CHANGED_NEW_AREA()
 	SetMapToCurrentZone()
+	self:UpdateAlpha()
+end
+
+function CleanMinimap:ZONE_CHANGED()
 	self:UpdateAlpha()
 end
 

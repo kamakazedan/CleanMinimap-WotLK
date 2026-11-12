@@ -52,3 +52,6 @@ CleanMinimap 1.6.5 fixed build (WoW 3.3.5a)
  - Added "Show border" and "Minimap opacity" options (opacity is full indoors).
  - Moved the Dungeon Finder popup to UIParent so minimap scale/opacity never apply to it.
  - Mouse-wheel zoom and zone-name click now work in round mode too.
+
+CleanMinimap 1.6.6 fixed build (WoW 3.3.5a)
+ - Kept the minimap fully opaque whenever it shows an indoor-style map (cities such as Orgrimmar, not just buildings), fixing the blank map with opacity below 100%.

@@ -1,4 +1,14 @@
-CleanMinimap 1.6.5 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+CleanMinimap 1.6.6 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+
+What changed in 1.6.6
+---------------------
+- Fixed the map vanishing (a dark see-through square left behind) in cities
+  such as Orgrimmar when "Minimap opacity" is below 100%. The game can't draw
+  indoor-style maps see-through, and 1.6.5 only went fully opaque when
+  IsIndoors() said so, which is false in places like the Valley of Strength.
+  It now also checks which zoom mode the minimap itself is in (indoor or
+  outdoor), the same check the Astrolabe map library uses, and stays fully
+  opaque whenever the minimap is showing an indoor-style map.
 
 What changed in 1.6.5
 ---------------------
