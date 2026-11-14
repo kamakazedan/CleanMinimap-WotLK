@@ -1,4 +1,12 @@
-CleanMinimap 1.6.6 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+CleanMinimap 1.6.7 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+
+What changed in 1.6.7
+---------------------
+- Blizzard's calendar button is shown again (CleanMinimap used to hide it).
+  It has its own slot at the bottom of the icon column left of the minimap,
+  below the Dungeon Finder slot, so it never moves when the mail,
+  battleground or Dungeon Finder icons appear. It follows the "Icon size"
+  option, and a new "Show calendar" option hides it.
 
 What changed in 1.6.6
 ---------------------

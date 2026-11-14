@@ -12,6 +12,7 @@ CleanMinimap.defaults = {
 		ShowDura = true,
 		ShowTrack = true,
 		ShowMail = true,
+		ShowCalendar = true,
 		Scale = 1,
 		Alpha = 1,
 		IconScale = 18,
@@ -93,6 +94,15 @@ CleanMinimap.options = {
 					set = "SetShowMail",
 					width = 'full',
 					order = 6,
+				},
+				ShowCalendar = {
+					type = 'toggle',
+					name = "Show calendar",
+					desc = "Toggle the calendar button, below the other icons beside the minimap.",
+					get = "GetShowCalendar",
+					set = "SetShowCalendar",
+					width = 'full',
+					order = 6.5,
 				},
 				Scale = {
 					type = 'range',
@@ -284,6 +294,13 @@ function CleanMinimap:SetShowMail()
 		MiniMapMailFrame:Hide();
 	end
 end
+function CleanMinimap:GetShowCalendar()
+	return self.db.profile.ShowCalendar
+end
+function CleanMinimap:SetShowCalendar()
+	self.db.profile.ShowCalendar = not self.db.profile.ShowCalendar
+	self:UpdateCalendar()
+end
 
 -- Keep Blizzard's player aura frames outside the minimap and at the same scale.
 -- In WotLK 3.3.5a these are separate UIParent frames, not children of MinimapCluster.
@@ -352,6 +369,33 @@ function CleanMinimap:UpdateLFGFrame()
 	-- keeps the eye clear of the map's edge at every icon size.
 	MiniMapLFGFrame:ClearAllPoints()
 	MiniMapLFGFrame:SetPoint("TOP", MiniMapBattlefieldFrame, "BOTTOM", -1.5, -3)
+end
+
+-- Blizzard's calendar button (GameTimeFrame, 40x40, a child of Minimap so it
+-- scales and fades with it). Its own slot at the bottom of the icon column,
+-- below the Dungeon Finder slot, so it never moves when the mail, battleground
+-- or Dungeon Finder icons come and go. It is scaled rather than resized so
+-- the date and invite glows shrink with the artwork; at S+6 the art looks
+-- about the size of the other icons and its edge stays clear of the map.
+function CleanMinimap:UpdateCalendar()
+	if not GameTimeFrame or not MiniMapLFGFrame then
+		return
+	end
+	local size = 18
+	if self.db and self.db.profile then
+		size = tonumber(self.db.profile.IconScale) or 18
+	end
+	local k = (size + 6) / 40
+	GameTimeFrame:SetScale(k)
+	GameTimeFrame:ClearAllPoints()
+	-- Offsets are in the button's own (scaled) units: 3 minimap units below
+	-- the Dungeon Finder slot, centred on the same column line.
+	GameTimeFrame:SetPoint("TOP", MiniMapLFGFrame, "BOTTOM", 0, -3 / k)
+	if self.db and self.db.profile and self.db.profile.ShowCalendar then
+		GameTimeFrame:Show()
+	else
+		GameTimeFrame:Hide()
+	end
 end
 
 -- Keep the Dungeon Finder status popup (LFDSearchStatus, the "Assembling
@@ -631,6 +675,7 @@ function CleanMinimap:SetIconScale(table, size)
 	MiniMapBattlefieldIcon:SetHeight(self.db.profile.IconScale + 14);
 	MiniMapBattlefieldIcon:SetWidth(self.db.profile.IconScale + 14);
 	self:UpdateLFGFrame()
+	self:UpdateCalendar()
 	self:UpdateLayout()
 end
 
@@ -682,8 +727,9 @@ function CleanMinimap:OnInitialize()
 	MinimapZoomOut:Hide();
 	--MinimapToggleButton:Hide();
 	MiniMapWorldMapButton:Hide();
-	GameTimeFrame:Hide();
-	
+	--The calendar button (GameTimeFrame) is placed with the other icons
+	--below, by UpdateCalendar.
+
 	--Tracking Frame
 	MiniMapTracking:SetHeight(self.db.profile.IconScale);
 	MiniMapTracking:SetWidth(self.db.profile.IconScale);
@@ -728,6 +774,8 @@ function CleanMinimap:OnInitialize()
 	--and opacity. Give it to UIParent instead (it still anchors to the eye),
 	--and hide it whenever the eye hides, as it did as a child.
 	self:UpdateLFGFrame()
+	--Calendar button, in its slot below the eye.
+	self:UpdateCalendar()
 	if LFDSearchStatus then
 		LFDSearchStatus:SetParent(UIParent)
 		LFDSearchStatus:SetFrameStrata("TOOLTIP")
