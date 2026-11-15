@@ -1,4 +1,18 @@
-CleanMinimap 1.7.1 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+CleanMinimap 1.7.2 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+
+What changed in 1.7.2
+---------------------
+- Every icon drags the same way. CleanMinimap now does the dragging for
+  other addons' buttons as well as its own icons, instead of leaving it to
+  each addon's drag code, so every icon keeps up with the cursor. Some
+  addons' drag code (AtlasLootFu's, for one) measures the cursor as if the
+  minimap were at 100% scale; with the minimap scaled up, their buttons
+  crawled a few degrees for a whole lap of the cursor. A button its addon
+  gave no drag at all can now be dragged too.
+- CleanMinimap saves where you leave each addon's button (by the button's
+  name), so it stays there after a reload. A button you haven't dragged yet
+  starts where its addon puts it. Turning "Tidy addon minimap buttons" off
+  hands each button back to its addon, at the place its addon has saved.
 
 What changed in 1.7.1
 ---------------------

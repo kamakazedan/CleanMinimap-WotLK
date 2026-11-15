@@ -24,6 +24,9 @@ CleanMinimap.defaults = {
 			lfg = 216,
 			calendar = 238,
 		},
+		-- Where other addons' buttons were last dragged to, in degrees, by
+		-- button name. Buttons not in here go where their addons put them.
+		AddonButtonAngles = {},
 		Scale = 1,
 		Alpha = 1,
 		IconScale = 18,
@@ -482,20 +485,51 @@ function CleanMinimap:UpdateOwnIcons()
 	end
 end
 
--- While one of our icons is dragged, follow the cursor's direction from the
--- map's centre and save it.
+-- Dragging. Every icon round the border, CleanMinimap's own (key) and other
+-- addons' buttons (button), is dragged by this one frame: while the mouse
+-- is held it puts the icon at the cursor's direction from the map's centre,
+-- worked out in the minimap's own units, so every icon keeps up with the
+-- cursor the same way. Addons' own drag code isn't relied on for this: some
+-- measure the cursor as if the minimap were at 100% scale, so with it scaled
+-- up their buttons crawl a few degrees for a whole lap of the cursor.
 local iconDragFrame = CreateFrame("Frame")
 iconDragFrame:Hide()
+
+-- Finish a drag. An addon button's place is saved by name, so it stays where
+-- it was left (CleanMinimap's own icons save theirs as they move).
+function CleanMinimap:EndIconDrag()
+	local button = iconDragFrame.button
+	iconDragFrame:Hide()
+	iconDragFrame.key, iconDragFrame.button = nil, nil
+	if button and button.cleanMinimapAngle and self.db and self.db.profile then
+		local name = button:GetName()
+		if name and self.db.profile.AddonButtonAngles then
+			self.db.profile.AddonButtonAngles[name] = math.deg(button.cleanMinimapAngle) % 360
+		end
+		self:PlaceAddonButton(button)
+	end
+end
+
 iconDragFrame:SetScript("OnUpdate", function(frame)
-	local key = frame.key
 	local mx, my = Minimap:GetCenter()
-	if not key or not mx or not CleanMinimap.db then
+	if not mx or not CleanMinimap.db or not (frame.key or frame.button) then
 		return
 	end
 	local cx, cy = GetCursorPosition()
 	local ms = Minimap:GetEffectiveScale()
-	CleanMinimap.db.profile.IconAngles[key] = math.deg(math.atan2(cy / ms - my, cx / ms - mx)) % 360
-	CleanMinimap:PlaceOwnIcon(key)
+	local angle = math.atan2(cy / ms - my, cx / ms - mx)
+	if frame.key then
+		CleanMinimap.db.profile.IconAngles[frame.key] = math.deg(angle) % 360
+		CleanMinimap:PlaceOwnIcon(frame.key)
+	else
+		frame.button.cleanMinimapAngle = angle
+		CleanMinimap:PlaceAddonButton(frame.button)
+	end
+	-- In case a drag ends without its stop script running (say the icon
+	-- was hidden mid-drag).
+	if not IsMouseButtonDown("LeftButton") and not IsMouseButtonDown("RightButton") then
+		CleanMinimap:EndIconDrag()
+	end
 end)
 
 function CleanMinimap:SetUpOwnIcons()
@@ -517,12 +551,11 @@ function CleanMinimap:SetUpOwnIcons()
 			handle.cleanMinimapKey = key
 			handle:RegisterForDrag("LeftButton")
 			handle:HookScript("OnDragStart", function(button)
-				iconDragFrame.key = button.cleanMinimapKey
+				iconDragFrame.key, iconDragFrame.button = button.cleanMinimapKey, nil
 				iconDragFrame:Show()
 			end)
 			handle:HookScript("OnDragStop", function()
-				iconDragFrame:Hide()
-				iconDragFrame.key = nil
+				CleanMinimap:EndIconDrag()
 			end)
 		end
 	end
@@ -534,12 +567,13 @@ end
 -- addon picks its own size and distance from the map, and they all grow with
 -- the minimap scale. Instead every one is scaled to the same size (that of a
 -- standard button scaled like the calendar, so they follow the Icon size
--- option) and centred on the map's border, square or round, at the angle its
--- addon puts it. Their addons still move them: whenever one places its button
--- (e.g. while you drag it), the direction is taken from where it asked for
--- and the button goes back on the border there. So it slides round the border
--- with the cursor, and each addon keeps saving the position as usual. Buttons
--- an addon already scales itself, and protected ones, are left alone.
+-- option) and centred on the map's border, square or round. Dragging one is
+-- done by CleanMinimap like its own icons (iconDragFrame), and where it's
+-- left is saved by the button's name (AddonButtonAngles). Until it has been
+-- dragged, a button goes in the direction its addon puts it: whenever the
+-- addon places it, the direction is taken from where it asked for and the
+-- button goes back on the border there. Buttons an addon already scales
+-- itself, and protected ones, are left alone.
 local addonButtons = {}  -- button -> scale we applied
 local minimapParents = { [Minimap] = true, [MinimapBackdrop] = true, [MinimapCluster] = true }
 
@@ -681,10 +715,22 @@ function CleanMinimap:PlaceAddonButtons()
 	end
 end
 
+-- Where the button was last dragged to (radians), if it has been.
+local function SavedAddonButtonAngle(button)
+	local name = button:GetName()
+	local angles = CleanMinimap.db and CleanMinimap.db.profile and CleanMinimap.db.profile.AddonButtonAngles
+	local degrees = name and angles and tonumber(angles[name])
+	return degrees and math.rad(degrees)
+end
+
 -- Stop managing a button: back to its normal size, and to the layer it had
 -- unless something (such as an addon that collects minimap buttons into a
 -- bag) has given it another since.
 local function DropAddonButton(button)
+	if iconDragFrame.button == button then
+		iconDragFrame:Hide()
+		iconDragFrame.button = nil
+	end
 	addonButtons[button] = nil
 	iconFrames[button] = nil
 	button:SetScale(1)
@@ -696,8 +742,11 @@ local function DropAddonButton(button)
 end
 
 -- Hooked onto each button's SetPoint: its addon has just placed it (on load,
--- or while you drag it round the map), so note what it asked for and put it
--- on the border in that direction.
+-- or while its own drag code runs), so note what it asked for, which is
+-- where it goes back to if it's ever handed back. While you drag the button,
+-- or once you have, its addon's choice of place is overruled: it goes back
+-- on the border at the cursor's direction, or where you left it. Until then
+-- it goes on the border in the direction its addon asked for.
 local function OnAddonButtonSetPoint(button, point, relativeTo, relativePoint, x, y)
 	if button.cleanMinimapMoving then
 		return
@@ -711,18 +760,39 @@ local function OnAddonButtonSetPoint(button, point, relativeTo, relativePoint, x
 		DropAddonButton(button)
 		return
 	end
-	local angle = RequestedAngle(button, point, relativeTo, relativePoint, x, y)
-	if angle then
-		button.cleanMinimapAngle = angle
+	if iconDragFrame.button ~= button then
+		local angle = SavedAddonButtonAngle(button) or RequestedAngle(button, point, relativeTo, relativePoint, x, y)
+		if angle then
+			button.cleanMinimapAngle = angle
+		end
 	end
 	CleanMinimap:PlaceAddonButton(button)
 end
 
--- Some addons let you drag their button anywhere rather than round the map.
--- When one is dropped off the border, put it back on the border in that
--- direction.
+-- A drag on a managed button: CleanMinimap moves it from here on, the same
+-- way as its own icons. An addon that moves its button by hand (StartMoving)
+-- would fight that, so the hand move is stopped.
+local function OnAddonButtonDragStart(button)
+	if not addonButtons[button] then
+		return
+	end
+	if button:IsMovable() then
+		button:StopMovingOrSizing()
+	end
+	iconDragFrame.key, iconDragFrame.button = nil, button
+	iconDragFrame:Show()
+end
+
+-- The end of a drag. Normally ours: save where it was left. Otherwise (the
+-- drag began before CleanMinimap took the button over, say) an addon that
+-- lets you drop its button anywhere may have left it off the border, so put
+-- it back on the border in that direction.
 local function OnAddonButtonDragStop(button)
 	if not addonButtons[button] then
+		return
+	end
+	if iconDragFrame.button == button then
+		CleanMinimap:EndIconDrag()
 		return
 	end
 	local point, relativeTo = button:GetPoint(1)
@@ -738,20 +808,38 @@ local function OnAddonButtonDragStop(button)
 	CleanMinimap:PlaceAddonButton(button)
 end
 
+-- Hook a button's drag scripts, again if its addon has replaced them since.
+-- A button its addon gave no drag at all gets a left-drag, so every icon can
+-- be moved the same way.
+local function HookAddonButtonDrag(button)
+	if not button:GetScript("OnDragStart") then
+		button:RegisterForDrag("LeftButton")
+	end
+	if not button.cleanMinimapDragStart or button:GetScript("OnDragStart") ~= button.cleanMinimapDragStart then
+		button:HookScript("OnDragStart", OnAddonButtonDragStart)
+		button.cleanMinimapDragStart = button:GetScript("OnDragStart")
+	end
+	if not button.cleanMinimapDragStop or button:GetScript("OnDragStop") ~= button.cleanMinimapDragStop then
+		button:HookScript("OnDragStop", OnAddonButtonDragStop)
+		button.cleanMinimapDragStop = button:GetScript("OnDragStop")
+	end
+end
+
 local function ManageAddonButton(button, k)
 	if not button.cleanMinimapHooked then
 		button.cleanMinimapHooked = true
 		hooksecurefunc(button, "SetPoint", OnAddonButtonSetPoint)
-		button:HookScript("OnDragStop", OnAddonButtonDragStop)
 	end
+	HookAddonButtonDrag(button)
 	if not addonButtons[button] then
-		-- Start from wherever its addon has put it so far.
+		-- Start from where it was last dragged to, or else wherever its
+		-- addon has put it so far.
 		local point, relativeTo, relativePoint, x, y = button:GetPoint(1)
 		if point then
 			button.cleanMinimapRequested = { point, relativeTo, relativePoint, x, y }
 			button.cleanMinimapAngle = RequestedAngle(button, point, relativeTo, relativePoint, x, y) or button.cleanMinimapAngle
 		end
-		button.cleanMinimapAngle = button.cleanMinimapAngle or math.rad(225)
+		button.cleanMinimapAngle = SavedAddonButtonAngle(button) or button.cleanMinimapAngle or math.rad(225)
 		-- Kept to give back if the button is ever handed back.
 		button.cleanMinimapStrata, button.cleanMinimapLevel = button:GetFrameStrata(), button:GetFrameLevel()
 	end

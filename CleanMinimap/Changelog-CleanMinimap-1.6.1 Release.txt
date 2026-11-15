@@ -71,3 +71,6 @@ CleanMinimap 1.7.0 fixed build (WoW 3.3.5a)
 CleanMinimap 1.7.1 fixed build (WoW 3.3.5a)
  - Drew the border, north marker, clock, zone name and every icon a strata above the map, so other addons' map markers slide under the border and never cover an icon.
  - Fixed the LibDBIcon "quadTable" error when dragging an addon's minimap button in round mode: GetMinimapShape() now returns "ROUND" instead of "CIRCULAR".
+
+CleanMinimap 1.7.2 fixed build (WoW 3.3.5a)
+ - Took over dragging for other addons' minimap buttons so every icon follows the cursor the same way at any minimap scale, and saved where each button is left by name.
