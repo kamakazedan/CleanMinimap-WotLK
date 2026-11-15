@@ -1,4 +1,21 @@
-CleanMinimap 1.6.9 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+CleanMinimap 1.7.0 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+
+What changed in 1.7.0
+---------------------
+- Every minimap icon now works the same way. Blizzard's tracking, mail,
+  battleground, Dungeon Finder and calendar icons join other addons' buttons
+  on the minimap's border instead of sitting in a column beside it, so they
+  no longer drift away from the map as Icon size goes up.
+- All icons are the same size. Blizzard's icons keep their normal gold ring
+  and layout (CleanMinimap used to hide the rings and resize the insides,
+  which is why the sizes never matched) and every icon is scaled whole to
+  one ring size set by "Icon size".
+- Drag any icon round the border to move it. CleanMinimap saves where
+  Blizzard's icons go; other addons still save their own buttons. Their
+  default places are down the left side, in the order they used to be
+  stacked; at large icon sizes, drag them apart.
+- The cluster's width follows the icon size, so the buffs stay just clear
+  of icons on the left border.
 
 What changed in 1.6.9
 ---------------------

@@ -14,6 +14,16 @@ CleanMinimap.defaults = {
 		ShowMail = true,
 		ShowCalendar = true,
 		ScaleAddonButtons = true,
+		-- Where CleanMinimap's own icons sit on the border, in degrees
+		-- (0 = right, 90 = top): down the left side, in the order they
+		-- used to be stacked.
+		IconAngles = {
+			tracking = 150,
+			mail = 172,
+			battlefield = 194,
+			lfg = 216,
+			calendar = 238,
+		},
 		Scale = 1,
 		Alpha = 1,
 		IconScale = 18,
@@ -142,7 +152,7 @@ CleanMinimap.options = {
 				IconScale = {
 					type = 'range',
 					name = "Icon size",
-					desc = "Increases or decreases the size of the default icons around the minimap.",
+					desc = "The size of every icon on the minimap's border: tracking, mail, battleground, Dungeon Finder, calendar and other addons' buttons. Drag any of them round the border to move it.",
 					max = 48,
 					min = 6,
 					step = 1,
@@ -309,7 +319,7 @@ function CleanMinimap:GetShowCalendar()
 end
 function CleanMinimap:SetShowCalendar()
 	self.db.profile.ShowCalendar = not self.db.profile.ShowCalendar
-	self:UpdateCalendar()
+	self:UpdateOwnIcons()
 end
 function CleanMinimap:GetScaleAddonButtons()
 	return self.db.profile.ScaleAddonButtons
@@ -354,65 +364,101 @@ function CleanMinimap:PositionAuraFrames()
 	end
 end
 
--- Dungeon Finder eye (MiniMapLFGFrame). In 3.3.5a it is a child of
--- MinimapBackdrop, so it already inherits MinimapCluster's scale, but Blizzard
--- anchors it for the round border, which leaves it sitting over the left edge
--- of the square map. Give it its own slot in the icon column, below the
--- battleground icon, and size it from the "Icon size" option like the others.
-function CleanMinimap:UpdateLFGFrame()
-	if not MiniMapLFGFrame or not MiniMapBattlefieldFrame then
-		return
-	end
+-- Every icon on the minimap -- CleanMinimap's own and other addons' -- is the
+-- same size: the width of its ring, in minimap units, set by Icon size.
+function CleanMinimap:IconFootprint()
 	local size = 18
 	if self.db and self.db.profile then
 		size = tonumber(self.db.profile.IconScale) or 18
 	end
-
-	-- The eye artwork has transparent padding, so it is drawn 6 units larger
-	-- than the tracking/mail icons to look the same size. The button is 2 units
-	-- larger again (Blizzard uses 33 vs 30) to leave room for the hover glow.
-	MiniMapLFGFrame:SetWidth(size + 8)
-	MiniMapLFGFrame:SetHeight(size + 8)
-	if MiniMapLFGFrameIcon then
-		MiniMapLFGFrameIcon:SetWidth(size + 6)
-		MiniMapLFGFrameIcon:SetHeight(size + 6)
-	end
-	if MiniMapLFGFrameBorder then
-		MiniMapLFGFrameBorder:Hide()
-	end
-
-	-- The battleground button's centre is 1.5 units right of the line the
-	-- tracking and mail icons are centred on, so shift left by that. This also
-	-- keeps the eye clear of the map's edge at every icon size.
-	MiniMapLFGFrame:ClearAllPoints()
-	MiniMapLFGFrame:SetPoint("TOP", MiniMapBattlefieldFrame, "BOTTOM", -1.5, -3)
+	return (size + 6) * 33 / 40
 end
 
--- Blizzard's calendar button (GameTimeFrame, 40x40, a child of Minimap so it
--- scales and fades with it). Its own slot at the bottom of the icon column,
--- below the Dungeon Finder slot, so it never moves when the mail, battleground
--- or Dungeon Finder icons come and go. It is scaled rather than resized so
--- the date and invite glows shrink with the artwork; at S+6 the art looks
--- about the size of the other icons and its edge stays clear of the map.
-function CleanMinimap:UpdateCalendar()
-	if not GameTimeFrame or not MiniMapLFGFrame then
+-- CleanMinimap's own icons: Blizzard's tracking, mail, battleground, Dungeon
+-- Finder and calendar buttons. Each keeps Blizzard's normal ringed look and
+-- layout and is scaled as a whole, the same way as other addons' buttons, so
+-- they all come out the same size. Each sits centred on the border at its
+-- saved angle (IconAngles, in degrees); drag one to move it round the border.
+-- footprint: the width of its ring at scale 1, in minimap units.
+local ownIcons = {
+	tracking = { frame = "MiniMapTracking", handle = "MiniMapTrackingButton", footprint = 33 },
+	mail = { frame = "MiniMapMailFrame", footprint = 33 },
+	battlefield = { frame = "MiniMapBattlefieldFrame", footprint = 33 },
+	lfg = { frame = "MiniMapLFGFrame", footprint = 33 },
+	calendar = { frame = "GameTimeFrame", footprint = 34 },
+}
+
+function CleanMinimap:PlaceOwnIcon(key)
+	local info = ownIcons[key]
+	local frame = info and _G[info.frame]
+	if not frame or not self.db or not self.db.profile then
 		return
 	end
-	local size = 18
-	if self.db and self.db.profile then
-		size = tonumber(self.db.profile.IconScale) or 18
+	local angles = self.db.profile.IconAngles
+	local angle = math.rad(tonumber(angles and angles[key]) or 180)
+	local k = self:IconFootprint() / info.footprint
+	frame:SetScale(k)
+	self:PlaceOnBorder(frame, angle, k, info.footprint)
+end
+
+function CleanMinimap:UpdateOwnIcons()
+	for key in pairs(ownIcons) do
+		self:PlaceOwnIcon(key)
 	end
-	local k = (size + 6) / 40
-	GameTimeFrame:SetScale(k)
-	GameTimeFrame:ClearAllPoints()
-	-- Offsets are in the button's own (scaled) units: 3 minimap units below
-	-- the Dungeon Finder slot, centred on the same column line.
-	GameTimeFrame:SetPoint("TOP", MiniMapLFGFrame, "BOTTOM", 0, -3 / k)
-	if self.db and self.db.profile and self.db.profile.ShowCalendar then
-		GameTimeFrame:Show()
-	else
-		GameTimeFrame:Hide()
+	if GameTimeFrame and self.db and self.db.profile then
+		if self.db.profile.ShowCalendar then
+			GameTimeFrame:Show()
+		else
+			GameTimeFrame:Hide()
+		end
 	end
+end
+
+-- While one of our icons is dragged, follow the cursor's direction from the
+-- map's centre and save it.
+local iconDragFrame = CreateFrame("Frame")
+iconDragFrame:Hide()
+iconDragFrame:SetScript("OnUpdate", function(frame)
+	local key = frame.key
+	local mx, my = Minimap:GetCenter()
+	if not key or not mx or not CleanMinimap.db then
+		return
+	end
+	local cx, cy = GetCursorPosition()
+	local ms = Minimap:GetEffectiveScale()
+	CleanMinimap.db.profile.IconAngles[key] = math.deg(math.atan2(cy / ms - my, cx / ms - mx)) % 360
+	CleanMinimap:PlaceOwnIcon(key)
+end)
+
+function CleanMinimap:SetUpOwnIcons()
+	-- Show the rings CleanMinimap used to hide. Everything else about these
+	-- buttons stays at Blizzard's sizes, so their own press and click
+	-- scripts work as Blizzard wrote them.
+	MiniMapTrackingBackground:Show()
+	MiniMapTrackingButtonBorder:Show()
+	MiniMapMailBorder:Show()
+	MiniMapBattlefieldBorder:Show()
+	if MiniMapLFGFrameBorder then
+		MiniMapLFGFrameBorder:Show()
+	end
+	-- Left-drag to move. A drag doesn't count as a click, so clicking still
+	-- opens their menus as normal.
+	for key, info in pairs(ownIcons) do
+		local handle = _G[info.handle or info.frame]
+		if handle then
+			handle.cleanMinimapKey = key
+			handle:RegisterForDrag("LeftButton")
+			handle:HookScript("OnDragStart", function(button)
+				iconDragFrame.key = button.cleanMinimapKey
+				iconDragFrame:Show()
+			end)
+			handle:HookScript("OnDragStop", function()
+				iconDragFrame:Hide()
+				iconDragFrame.key = nil
+			end)
+		end
+	end
+	self:UpdateOwnIcons()
 end
 
 -- Other addons' minimap buttons: LibDBIcon buttons and the usual round
@@ -519,27 +565,46 @@ local function BorderPoint(angle, square, distance)
 	return distance * c, distance * s
 end
 
--- Put a managed button on the border at its angle.
-function CleanMinimap:PlaceAddonButton(button)
-	local k, angle = addonButtons[button], button.cleanMinimapAngle
-	if not k or not angle or not self.db or not self.db.profile then
+-- Centre any icon (ours or another addon's) on the border at an angle. k is
+-- the frame's scale (its anchor offsets are in its own units) and footprint
+-- the width of its ring at scale 1. The screen's right and top edges are
+-- close at large scales, so an icon there sits further over the map to stay
+-- on screen.
+function CleanMinimap:PlaceOnBorder(frame, angle, k, footprint)
+	if not self.db or not self.db.profile then
 		return
 	end
 	local half = Minimap:GetWidth() / 2
 	local x, y = BorderPoint(angle, self.db.profile.UseSquare, half + (self.borderReach or 0) / 2)
-	-- Keep it on screen. The screen's right and top edges are close at large
-	-- scales, so a button there sits further over the map instead.
-	local h = math.max(button:GetWidth(), button:GetHeight()) * k / 2
+	local h = footprint * k / 2
 	if self.spaceRight then
 		x = math.min(x, half + self.spaceRight - h)
 	end
 	if self.spaceTop then
 		y = math.min(y, half + self.spaceTop - h)
 	end
-	button.cleanMinimapMoving = true
-	button:ClearAllPoints()
-	button:SetPoint("CENTER", Minimap, "CENTER", x / k, y / k)
-	button.cleanMinimapMoving = nil
+	frame.cleanMinimapMoving = true
+	frame:ClearAllPoints()
+	frame:SetPoint("CENTER", Minimap, "CENTER", x / k, y / k)
+	frame.cleanMinimapMoving = nil
+end
+
+-- A standard addon button is 31 units with its ring 2 wider.
+local function AddonButtonFootprint(button)
+	local native = math.max(button:GetWidth(), button:GetHeight())
+	if native <= 0 then
+		native = 31
+	end
+	return native + 2
+end
+
+-- Put a managed addon button on the border at its angle.
+function CleanMinimap:PlaceAddonButton(button)
+	local k, angle = addonButtons[button], button.cleanMinimapAngle
+	if not k or not angle then
+		return
+	end
+	self:PlaceOnBorder(button, angle, k, AddonButtonFootprint(button))
 end
 
 function CleanMinimap:PlaceAddonButtons()
@@ -641,16 +706,12 @@ function CleanMinimap:UpdateAddonButtons()
 	if not on then
 		return
 	end
-	-- One size for all: a standard 31-unit button scaled like the calendar.
-	local size = ((tonumber(self.db.profile.IconScale) or 18) + 6) * 31 / 40
+	-- The same size as CleanMinimap's own icons, whatever size its addon made it.
+	local size = self:IconFootprint()
 	for parent in pairs(minimapParents) do
 		for _, child in ipairs({ parent:GetChildren() }) do
 			if addonButtons[child] or (IsAddonMinimapButton(child) and child:GetScale() == 1) then
-				local native = math.max(child:GetWidth(), child:GetHeight())
-				if native <= 0 then
-					native = 31
-				end
-				ManageAddonButton(child, size / native)
+				ManageAddonButton(child, size / AddonButtonFootprint(child))
 			end
 		end
 	end
@@ -852,15 +913,16 @@ function CleanMinimap:UpdateLayout()
 		MiniMapInstanceDifficulty:SetPoint("TOPLEFT", Minimap, "TOPLEFT", -13, 5)
 	end
 
-	-- Wrap the icon column, map and gaps, keeping Blizzard's space below the
-	-- map for the clock. The buffs sit just left of this.
-	local iconSize = tonumber(p.IconScale) or 18
-	local left = 10 + iconSize + ICON_MARGIN / s
+	-- Wrap the map, the half of each icon that hangs past its left border,
+	-- and the gaps, keeping Blizzard's space below the map for the clock. The
+	-- buffs sit just left of this.
+	local left = border / 2 + self:IconFootprint() / 2 + ICON_MARGIN / s
 	MinimapCluster:SetWidth(left + Minimap:GetWidth() + right)
 	MinimapCluster:SetHeight(top + Minimap:GetHeight() + BOTTOM_SPACE)
 
 	self:PositionAuraFrames()
 	self:UpdateLFDSearchStatusScale()
+	self:UpdateOwnIcons()
 	self:PlaceAddonButtons()
 end
 
@@ -943,22 +1005,9 @@ function CleanMinimap:GetIconScale()
 end
 function CleanMinimap:SetIconScale(table, size)
 	self.db.profile.IconScale = size
-	MiniMapTracking:SetHeight(self.db.profile.IconScale);
-	MiniMapTracking:SetWidth(self.db.profile.IconScale);
-	MiniMapTrackingIcon:SetHeight(self.db.profile.IconScale);
-	MiniMapTrackingIcon:SetWidth(self.db.profile.IconScale);
-	MiniMapTrackingButton:SetHeight(self.db.profile.IconScale + 8);
-	MiniMapTrackingButton:SetWidth(self.db.profile.IconScale + 8);
-	MiniMapMailFrame:SetHeight(self.db.profile.IconScale);
-	MiniMapMailFrame:SetWidth(self.db.profile.IconScale);
-	MiniMapMailIcon:SetHeight(self.db.profile.IconScale);
-	MiniMapMailIcon:SetWidth(self.db.profile.IconScale);
-	MiniMapBattlefieldFrame:SetHeight(self.db.profile.IconScale + 15);
-	MiniMapBattlefieldFrame:SetWidth(self.db.profile.IconScale + 15);
-	MiniMapBattlefieldIcon:SetHeight(self.db.profile.IconScale + 14);
-	MiniMapBattlefieldIcon:SetWidth(self.db.profile.IconScale + 14);
-	self:UpdateLFGFrame()
-	self:UpdateCalendar()
+	-- Every icon is scaled whole from this; UpdateLayout also re-places ours
+	-- (and widens the cluster to fit them).
+	self:UpdateOwnIcons()
 	self:UpdateAddonButtons()
 	self:UpdateLayout()
 end
@@ -1011,58 +1060,19 @@ function CleanMinimap:OnInitialize()
 	MinimapZoomOut:Hide();
 	--MinimapToggleButton:Hide();
 	MiniMapWorldMapButton:Hide();
-	--The calendar button (GameTimeFrame) is placed with the other icons
-	--below, by UpdateCalendar.
 
-	--Tracking Frame
-	MiniMapTracking:SetHeight(self.db.profile.IconScale);
-	MiniMapTracking:SetWidth(self.db.profile.IconScale);
-	MiniMapTrackingIcon:SetHeight(self.db.profile.IconScale);
-	MiniMapTrackingIcon:SetWidth(self.db.profile.IconScale);
-	MiniMapTracking:ClearAllPoints();
-	MiniMapTracking:SetPoint("TOPRIGHT", Minimap, "TOPLEFT", -10, 6);
-	MiniMapTrackingBackground:Hide();
-	MiniMapTrackingButtonBorder:Hide();
-	MiniMapTrackingButton:SetHighlightTexture(nil);
-	MiniMapTrackingButton:SetHeight(self.db.profile.IconScale + 8);
-	MiniMapTrackingButton:SetWidth(self.db.profile.IconScale + 8);
-	MiniMapTrackingButtonShine:SetHeight(self.db.profile.IconScale + 8);
-	MiniMapTrackingButtonShine:SetWidth(self.db.profile.IconScale + 8);
-	MiniMapTrackingButton:SetScript("OnMouseDown", function()
-					MiniMapTrackingIcon:SetPoint("TOPLEFT", MiniMapTracking, "TOPLEFT", 8, -8);
-					end)
-	MiniMapTrackingButton:SetScript("OnMouseUp", function() 
-					MiniMapTrackingIcon:SetPoint("TOPLEFT", MiniMapTracking, "TOPLEFT", 6, -6);
-					end)
-	
-	--Mail Frame
-	MiniMapMailFrame:SetHeight(self.db.profile.IconScale);
-	MiniMapMailFrame:SetWidth(self.db.profile.IconScale);
-	MiniMapMailIcon:SetHeight(self.db.profile.IconScale);
-	MiniMapMailIcon:SetWidth(self.db.profile.IconScale);
-	MiniMapMailFrame:ClearAllPoints();
-	MiniMapMailFrame:SetPoint("TOPLEFT", MiniMapTracking, "BOTTOMLEFT", -1, -3);
-	MiniMapMailBorder:Hide();
-	
-	--Battlefield Frame
-	MiniMapBattlefieldFrame:SetHeight(self.db.profile.IconScale + 15);
-	MiniMapBattlefieldFrame:SetWidth(self.db.profile.IconScale + 15);
-	MiniMapBattlefieldIcon:SetHeight(self.db.profile.IconScale + 14);
-	MiniMapBattlefieldIcon:SetWidth(self.db.profile.IconScale + 14);
-	MiniMapBattlefieldFrame:ClearAllPoints();
-	MiniMapBattlefieldFrame:SetPoint("TOPLEFT", MiniMapMailFrame, "BOTTOMLEFT", 1, -3);
-	MiniMapBattlefieldBorder:Hide();
-
-	--Dungeon Finder eye, and its "Assembling Group..." popup. Blizzard
-	--parents the popup to the eye, so it would take on the minimap's scale
-	--and opacity. Give it to UIParent instead (it still anchors to the eye),
-	--and hide it whenever the eye hides, as it did as a child.
-	self:UpdateLFGFrame()
-	--Calendar button, in its slot below the eye.
-	self:UpdateCalendar()
+	--Tracking, mail, battleground, Dungeon Finder and calendar icons: on the
+	--border at their saved angles, the same size as every other icon, and
+	--draggable round it.
+	self:SetUpOwnIcons()
 	--Other addons' minimap buttons that already exist (more are picked up
 	--after loading screens and as addons load).
 	self:UpdateAddonButtons()
+
+	--The Dungeon Finder's "Assembling Group..." popup. Blizzard parents it
+	--to the eye, so it would take on the minimap's scale and opacity. Give it
+	--to UIParent instead (it still anchors to the eye), and hide it whenever
+	--the eye hides, as it did as a child.
 	if LFDSearchStatus then
 		LFDSearchStatus:SetParent(UIParent)
 		LFDSearchStatus:SetFrameStrata("TOOLTIP")
