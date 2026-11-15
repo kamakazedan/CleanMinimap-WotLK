@@ -1,4 +1,16 @@
-CleanMinimap 1.6.8 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+CleanMinimap 1.6.9 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+
+What changed in 1.6.9
+---------------------
+- Other addons' round minimap buttons are tidied, not just resized: every
+  one is the same size (following "Icon size") and sits centred on the
+  minimap's border, square or round, at the angle its addon puts it. Drag a
+  button and it slides round the border with the cursor; its addon still
+  saves where you leave it. Buttons that their addon lets you drag anywhere
+  snap back onto the border, in the direction you dropped them. Near the
+  screen's right and top edges a button sits further over the map so it
+  stays on screen. The option is now called "Tidy addon minimap buttons";
+  turning it off hands every button back to its addon as it was.
 
 What changed in 1.6.8
 ---------------------

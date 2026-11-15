@@ -61,3 +61,6 @@ CleanMinimap 1.6.7 fixed build (WoW 3.3.5a)
 
 CleanMinimap 1.6.8 fixed build (WoW 3.3.5a)
  - Scaled other addons' round minimap buttons with the Icon size option, keeping their positions; "Resize addon minimap buttons" turns it off.
+
+CleanMinimap 1.6.9 fixed build (WoW 3.3.5a)
+ - Gave all addon minimap buttons one size and put them on the border at their addon's angle, draggable round it; option renamed "Tidy addon minimap buttons".

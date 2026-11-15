@@ -107,8 +107,8 @@ CleanMinimap.options = {
 				},
 				ScaleAddonButtons = {
 					type = 'toggle',
-					name = "Resize addon minimap buttons",
-					desc = "Make other addons' round minimap buttons follow the Icon size option, like CleanMinimap's own icons, instead of growing with the minimap scale. They keep their positions and can still be dragged.",
+					name = "Tidy addon minimap buttons",
+					desc = "Give other addons' round minimap buttons all the same size, following the Icon size option, and line them up on the minimap's border. Drag them round the border to move them.",
 					get = "GetScaleAddonButtons",
 					set = "SetScaleAddonButtons",
 					width = 'full',
@@ -416,16 +416,18 @@ function CleanMinimap:UpdateCalendar()
 end
 
 -- Other addons' minimap buttons: LibDBIcon buttons and the usual round
--- buttons with the tracking-ring border. They are children of the minimap,
--- so they grow with the minimap scale and end up far bigger than our own
--- icons. Scale them by the same factor as the calendar (a standard 31-unit
--- button with its ring is about the size of the 40-unit calendar art), so
--- they follow the Icon size option. Scaling a frame also scales its anchor
--- offsets, which would pull each button towards the map's centre, so their
--- offsets are divided by the same factor, including whenever their addon
--- moves them (e.g. while dragging). Buttons an addon already scales itself,
--- and protected ones, are left alone.
+-- buttons with the tracking-ring border. Left alone they are a jumble: each
+-- addon picks its own size and distance from the map, and they all grow with
+-- the minimap scale. Instead every one is scaled to the same size (that of a
+-- standard button scaled like the calendar, so they follow the Icon size
+-- option) and centred on the map's border, square or round, at the angle its
+-- addon puts it. Their addons still move them: whenever one places its button
+-- (e.g. while you drag it), the direction is taken from where it asked for
+-- and the button goes back on the border there. So it slides round the border
+-- with the cursor, and each addon keeps saving the position as usual. Buttons
+-- an addon already scales itself, and protected ones, are left alone.
 local addonButtons = {}  -- button -> scale we applied
+local minimapParents = { [Minimap] = true, [MinimapBackdrop] = true, [MinimapCluster] = true }
 
 local function IsAddonMinimapButton(frame)
 	local name = frame:GetName()
@@ -453,46 +455,174 @@ local function IsAddonMinimapButton(frame)
 	return false
 end
 
--- Hooked onto each managed button's SetPoint. Its addon passes offsets meant
--- for the button's normal size, so re-anchor with them divided by our scale.
-local function KeepAddonButtonAnchor(button, point, relativeTo, relativePoint, x, y)
-	local k = addonButtons[button]
-	if not k or k == 1 or button.cleanMinimapMoving then
+-- Where each anchor point sits on a frame, as fractions of its size from its
+-- centre.
+local pointOffsets = {
+	TOPLEFT = { -0.5, 0.5 }, TOP = { 0, 0.5 }, TOPRIGHT = { 0.5, 0.5 },
+	LEFT = { -0.5, 0 }, CENTER = { 0, 0 }, RIGHT = { 0.5, 0 },
+	BOTTOMLEFT = { -0.5, -0.5 }, BOTTOM = { 0, -0.5 }, BOTTOMRIGHT = { 0.5, -0.5 },
+}
+
+-- Direction (radians, from the map's centre) of the place a button's addon
+-- asked for, worked out from the anchor it gave. Offsets and size are taken
+-- at the button's normal scale, as its addon meant them.
+local function RequestedAngle(button, point, relativeTo, relativePoint, x, y)
+	if type(relativeTo) == "number" then
+		-- SetPoint(point, x, y): relative to the parent, same point.
+		relativeTo, relativePoint, x, y = nil, point, relativeTo, relativePoint
+	end
+	if type(relativeTo) == "string" then
+		relativeTo = _G[relativeTo]
+	end
+	relativeTo = relativeTo or button:GetParent()
+	if type(relativeTo) ~= "table" or not relativeTo.GetCenter then
+		return nil
+	end
+	point = type(point) == "string" and point:upper() or "CENTER"
+	relativePoint = type(relativePoint) == "string" and relativePoint:upper() or point
+	local p, r = pointOffsets[point], pointOffsets[relativePoint]
+	if not p or not r then
+		return nil
+	end
+	-- The anchor's position from the map's centre, in minimap units.
+	local ax, ay
+	if relativeTo == Minimap then
+		ax, ay = r[1] * Minimap:GetWidth(), r[2] * Minimap:GetHeight()
+	else
+		local rx, ry = relativeTo:GetCenter()
+		local mx, my = Minimap:GetCenter()
+		if not rx or not mx then
+			return nil
+		end
+		local rs, ms = relativeTo:GetEffectiveScale(), Minimap:GetEffectiveScale()
+		ax = ((rx + r[1] * relativeTo:GetWidth()) * rs - mx * ms) / ms
+		ay = ((ry + r[2] * relativeTo:GetHeight()) * rs - my * ms) / ms
+	end
+	-- Its parent is the minimap or a frame at the same scale, so the
+	-- button's own units at scale 1 are minimap units.
+	local cx = ax + (tonumber(x) or 0) - p[1] * button:GetWidth()
+	local cy = ay + (tonumber(y) or 0) - p[2] * button:GetHeight()
+	if cx == 0 and cy == 0 then
+		return nil
+	end
+	return math.atan2(cy, cx)
+end
+
+-- Point on the border at an angle, in minimap units from the map's centre:
+-- on the square's edge (corners included), or on the circle.
+local function BorderPoint(angle, square, distance)
+	local c, s = math.cos(angle), math.sin(angle)
+	if square then
+		local m = math.max(math.abs(c), math.abs(s))
+		return distance * c / m, distance * s / m
+	end
+	return distance * c, distance * s
+end
+
+-- Put a managed button on the border at its angle.
+function CleanMinimap:PlaceAddonButton(button)
+	local k, angle = addonButtons[button], button.cleanMinimapAngle
+	if not k or not angle or not self.db or not self.db.profile then
 		return
 	end
-	if type(x) == "number" and type(y) == "number" then
-		button.cleanMinimapMoving = true
-		button:SetPoint(point, relativeTo, relativePoint, x / k, y / k)
-		button.cleanMinimapMoving = nil
+	local half = Minimap:GetWidth() / 2
+	local x, y = BorderPoint(angle, self.db.profile.UseSquare, half + (self.borderReach or 0) / 2)
+	-- Keep it on screen. The screen's right and top edges are close at large
+	-- scales, so a button there sits further over the map instead.
+	local h = math.max(button:GetWidth(), button:GetHeight()) * k / 2
+	if self.spaceRight then
+		x = math.min(x, half + self.spaceRight - h)
+	end
+	if self.spaceTop then
+		y = math.min(y, half + self.spaceTop - h)
+	end
+	button.cleanMinimapMoving = true
+	button:ClearAllPoints()
+	button:SetPoint("CENTER", Minimap, "CENTER", x / k, y / k)
+	button.cleanMinimapMoving = nil
+end
+
+function CleanMinimap:PlaceAddonButtons()
+	for button in pairs(addonButtons) do
+		self:PlaceAddonButton(button)
 	end
 end
 
-local function ScaleAddonButton(button, k)
-	local old = addonButtons[button]
-	if not old then
-		if button:GetScale() ~= 1 then
-			return  -- its addon scales it; leave it to that addon
-		end
-		hooksecurefunc(button, "SetPoint", KeepAddonButtonAnchor)
-		old = 1
-	end
-	addonButtons[button] = k
-	if old == k then
+-- Hooked onto each button's SetPoint: its addon has just placed it (on load,
+-- or while you drag it round the map), so note what it asked for and put it
+-- on the border in that direction.
+local function OnAddonButtonSetPoint(button, point, relativeTo, relativePoint, x, y)
+	if button.cleanMinimapMoving then
 		return
 	end
-	-- Re-apply its anchors so it stays in the same place at the new scale.
-	local points = {}
-	for i = 1, button:GetNumPoints() do
-		local point, relativeTo, relativePoint, x, y = button:GetPoint(i)
-		points[i] = { point, relativeTo, relativePoint, (x or 0) * old / k, (y or 0) * old / k }
+	button.cleanMinimapRequested = { point, relativeTo, relativePoint, x, y }
+	if not addonButtons[button] then
+		return
 	end
+	if not minimapParents[button:GetParent()] then
+		-- Moved off the minimap (e.g. into a button-bag addon): let it go.
+		addonButtons[button] = nil
+		button:SetScale(1)
+		return
+	end
+	local angle = RequestedAngle(button, point, relativeTo, relativePoint, x, y)
+	if angle then
+		button.cleanMinimapAngle = angle
+	end
+	CleanMinimap:PlaceAddonButton(button)
+end
+
+-- Some addons let you drag their button anywhere rather than round the map.
+-- When one is dropped off the border, put it back on the border in that
+-- direction.
+local function OnAddonButtonDragStop(button)
+	if not addonButtons[button] then
+		return
+	end
+	local point, relativeTo = button:GetPoint(1)
+	if point == "CENTER" and relativeTo == Minimap then
+		return  -- still where we put it; its addon moved it with SetPoint
+	end
+	local bx, by = button:GetCenter()
+	local mx, my = Minimap:GetCenter()
+	if bx and mx then
+		local bs, ms = button:GetEffectiveScale(), Minimap:GetEffectiveScale()
+		button.cleanMinimapAngle = math.atan2(by * bs - my * ms, bx * bs - mx * ms)
+	end
+	CleanMinimap:PlaceAddonButton(button)
+end
+
+local function ManageAddonButton(button, k)
+	if not button.cleanMinimapHooked then
+		button.cleanMinimapHooked = true
+		hooksecurefunc(button, "SetPoint", OnAddonButtonSetPoint)
+		button:HookScript("OnDragStop", OnAddonButtonDragStop)
+	end
+	if not addonButtons[button] then
+		-- Start from wherever its addon has put it so far.
+		local point, relativeTo, relativePoint, x, y = button:GetPoint(1)
+		if point then
+			button.cleanMinimapRequested = { point, relativeTo, relativePoint, x, y }
+			button.cleanMinimapAngle = RequestedAngle(button, point, relativeTo, relativePoint, x, y) or button.cleanMinimapAngle
+		end
+		button.cleanMinimapAngle = button.cleanMinimapAngle or math.rad(225)
+	end
+	addonButtons[button] = k
 	button:SetScale(k)
-	button.cleanMinimapMoving = true
-	button:ClearAllPoints()
-	for _, p in ipairs(points) do
-		button:SetPoint(p[1], p[2], p[3], p[4], p[5])
+	CleanMinimap:PlaceAddonButton(button)
+end
+
+-- Hand a button back to its addon: normal size, where its addon last put it.
+local function ReleaseAddonButton(button)
+	addonButtons[button] = nil
+	button:SetScale(1)
+	local r = button.cleanMinimapRequested
+	if r and r[1] then
+		button.cleanMinimapMoving = true
+		button:ClearAllPoints()
+		button:SetPoint(r[1], r[2] or button:GetParent(), r[3] or r[1], tonumber(r[4]) or 0, tonumber(r[5]) or 0)
+		button.cleanMinimapMoving = nil
 	end
-	button.cleanMinimapMoving = nil
 end
 
 function CleanMinimap:UpdateAddonButtons()
@@ -500,22 +630,27 @@ function CleanMinimap:UpdateAddonButtons()
 		return
 	end
 	local on = self.db.profile.ScaleAddonButtons
-	local k = ((tonumber(self.db.profile.IconScale) or 18) + 6) / 40
-	local parents = { [Minimap] = true, [MinimapBackdrop] = true, [MinimapCluster] = true }
-	-- Put back any button when this is turned off, or once it has left the
-	-- minimap (e.g. moved into a button-bag addon).
-	for button, applied in pairs(addonButtons) do
-		if applied ~= 1 and (not on or not parents[button:GetParent()]) then
-			ScaleAddonButton(button, 1)
+	for button in pairs(addonButtons) do
+		if not on then
+			ReleaseAddonButton(button)
+		elseif not minimapParents[button:GetParent()] then
+			addonButtons[button] = nil
+			button:SetScale(1)
 		end
 	end
 	if not on then
 		return
 	end
-	for parent in pairs(parents) do
+	-- One size for all: a standard 31-unit button scaled like the calendar.
+	local size = ((tonumber(self.db.profile.IconScale) or 18) + 6) * 31 / 40
+	for parent in pairs(minimapParents) do
 		for _, child in ipairs({ parent:GetChildren() }) do
-			if addonButtons[child] or IsAddonMinimapButton(child) then
-				ScaleAddonButton(child, k)
+			if addonButtons[child] or (IsAddonMinimapButton(child) and child:GetScale() == 1) then
+				local native = math.max(child:GetWidth(), child:GetHeight())
+				if native <= 0 then
+					native = 31
+				end
+				ManageAddonButton(child, size / native)
 			end
 		end
 	end
@@ -703,6 +838,10 @@ function CleanMinimap:UpdateLayout()
 	local right = EDGE_GAP / s
 	Minimap:ClearAllPoints()
 	Minimap:SetPoint("TOPRIGHT", MinimapCluster, "TOPRIGHT", -right, -top)
+	-- For placing other addons' buttons on the border, and keeping them on
+	-- screen: the border's reach and the room to the screen's edges, in
+	-- minimap units.
+	self.borderReach, self.spaceRight, self.spaceTop = border, right, top
 
 	-- Blizzard anchors these to the cluster. Keep them where they normally
 	-- sit relative to the map.
@@ -722,6 +861,7 @@ function CleanMinimap:UpdateLayout()
 
 	self:PositionAuraFrames()
 	self:UpdateLFDSearchStatusScale()
+	self:PlaceAddonButtons()
 end
 
 function CleanMinimap:PLAYER_REGEN_ENABLED()
