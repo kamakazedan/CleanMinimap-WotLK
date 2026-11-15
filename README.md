@@ -17,6 +17,7 @@ The settings are under **Interface → AddOns → CleanMinimap**.
 - The border stays the thickness it has at 100% however large you make the minimap. Round mode uses a thin black ring to match the square border, instead of Blizzard's gold frame.
 - The Dungeon Finder eye has its own slot in the icon column beside the map and follows the Icon size option. Its "Assembling Group..." popup is drawn at normal size instead of at the minimap's scale.
 - Blizzard's calendar button is shown (1.6.2 hid it), in its own slot at the bottom of the icon column so it never moves when other icons appear. It follows the Icon size option, and **Show calendar** turns it off.
+- Other addons' round minimap buttons (LibDBIcon buttons and others with the standard gold ring) follow the Icon size option too, instead of growing with the minimap scale. They stay where their addons put them and can still be dragged. **Resize addon minimap buttons** turns this off. Icons drawn inside the map, such as quest objectives, are sized by their own addons.
 - New options: **Show border** turns the border off, and **Minimap opacity** makes the minimap see-through. In buildings, dungeons and cities such as Orgrimmar it stays fully opaque, because the game can't draw those maps see-through.
 - Mouse-wheel zoom, and clicking the zone name to hide the map, work in round mode as well as square.
 

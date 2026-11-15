@@ -13,6 +13,7 @@ CleanMinimap.defaults = {
 		ShowTrack = true,
 		ShowMail = true,
 		ShowCalendar = true,
+		ScaleAddonButtons = true,
 		Scale = 1,
 		Alpha = 1,
 		IconScale = 18,
@@ -103,6 +104,15 @@ CleanMinimap.options = {
 					set = "SetShowCalendar",
 					width = 'full',
 					order = 6.5,
+				},
+				ScaleAddonButtons = {
+					type = 'toggle',
+					name = "Resize addon minimap buttons",
+					desc = "Make other addons' round minimap buttons follow the Icon size option, like CleanMinimap's own icons, instead of growing with the minimap scale. They keep their positions and can still be dragged.",
+					get = "GetScaleAddonButtons",
+					set = "SetScaleAddonButtons",
+					width = 'full',
+					order = 6.6,
 				},
 				Scale = {
 					type = 'range',
@@ -301,6 +311,13 @@ function CleanMinimap:SetShowCalendar()
 	self.db.profile.ShowCalendar = not self.db.profile.ShowCalendar
 	self:UpdateCalendar()
 end
+function CleanMinimap:GetScaleAddonButtons()
+	return self.db.profile.ScaleAddonButtons
+end
+function CleanMinimap:SetScaleAddonButtons()
+	self.db.profile.ScaleAddonButtons = not self.db.profile.ScaleAddonButtons
+	self:UpdateAddonButtons()
+end
 
 -- Keep Blizzard's player aura frames outside the minimap and at the same scale.
 -- In WotLK 3.3.5a these are separate UIParent frames, not children of MinimapCluster.
@@ -396,6 +413,132 @@ function CleanMinimap:UpdateCalendar()
 	else
 		GameTimeFrame:Hide()
 	end
+end
+
+-- Other addons' minimap buttons: LibDBIcon buttons and the usual round
+-- buttons with the tracking-ring border. They are children of the minimap,
+-- so they grow with the minimap scale and end up far bigger than our own
+-- icons. Scale them by the same factor as the calendar (a standard 31-unit
+-- button with its ring is about the size of the 40-unit calendar art), so
+-- they follow the Icon size option. Scaling a frame also scales its anchor
+-- offsets, which would pull each button towards the map's centre, so their
+-- offsets are divided by the same factor, including whenever their addon
+-- moves them (e.g. while dragging). Buttons an addon already scales itself,
+-- and protected ones, are left alone.
+local addonButtons = {}  -- button -> scale we applied
+
+local function IsAddonMinimapButton(frame)
+	local name = frame:GetName()
+	if not name or frame:IsProtected() then
+		return false
+	end
+	-- Blizzard's own minimap frames.
+	if name:find("^MiniMap") or name:find("^Minimap") or name:find("^GameTime") or name:find("^TimeManager") then
+		return false
+	end
+	if name:find("^LibDBIcon10_") then
+		return true
+	end
+	if frame:GetObjectType() ~= "Button" then
+		return false
+	end
+	for _, region in ipairs({ frame:GetRegions() }) do
+		if region:GetObjectType() == "Texture" then
+			local texture = region:GetTexture()
+			if type(texture) == "string" and texture:lower():find("trackingborder") then
+				return true
+			end
+		end
+	end
+	return false
+end
+
+-- Hooked onto each managed button's SetPoint. Its addon passes offsets meant
+-- for the button's normal size, so re-anchor with them divided by our scale.
+local function KeepAddonButtonAnchor(button, point, relativeTo, relativePoint, x, y)
+	local k = addonButtons[button]
+	if not k or k == 1 or button.cleanMinimapMoving then
+		return
+	end
+	if type(x) == "number" and type(y) == "number" then
+		button.cleanMinimapMoving = true
+		button:SetPoint(point, relativeTo, relativePoint, x / k, y / k)
+		button.cleanMinimapMoving = nil
+	end
+end
+
+local function ScaleAddonButton(button, k)
+	local old = addonButtons[button]
+	if not old then
+		if button:GetScale() ~= 1 then
+			return  -- its addon scales it; leave it to that addon
+		end
+		hooksecurefunc(button, "SetPoint", KeepAddonButtonAnchor)
+		old = 1
+	end
+	addonButtons[button] = k
+	if old == k then
+		return
+	end
+	-- Re-apply its anchors so it stays in the same place at the new scale.
+	local points = {}
+	for i = 1, button:GetNumPoints() do
+		local point, relativeTo, relativePoint, x, y = button:GetPoint(i)
+		points[i] = { point, relativeTo, relativePoint, (x or 0) * old / k, (y or 0) * old / k }
+	end
+	button:SetScale(k)
+	button.cleanMinimapMoving = true
+	button:ClearAllPoints()
+	for _, p in ipairs(points) do
+		button:SetPoint(p[1], p[2], p[3], p[4], p[5])
+	end
+	button.cleanMinimapMoving = nil
+end
+
+function CleanMinimap:UpdateAddonButtons()
+	if not self.db or not self.db.profile then
+		return
+	end
+	local on = self.db.profile.ScaleAddonButtons
+	local k = ((tonumber(self.db.profile.IconScale) or 18) + 6) / 40
+	local parents = { [Minimap] = true, [MinimapBackdrop] = true, [MinimapCluster] = true }
+	-- Put back any button when this is turned off, or once it has left the
+	-- minimap (e.g. moved into a button-bag addon).
+	for button, applied in pairs(addonButtons) do
+		if applied ~= 1 and (not on or not parents[button:GetParent()]) then
+			ScaleAddonButton(button, 1)
+		end
+	end
+	if not on then
+		return
+	end
+	for parent in pairs(parents) do
+		for _, child in ipairs({ parent:GetChildren() }) do
+			if addonButtons[child] or IsAddonMinimapButton(child) then
+				ScaleAddonButton(child, k)
+			end
+		end
+	end
+end
+
+-- Addons can create their buttons late, so look again a few times after
+-- each loading screen and each addon that loads later.
+local buttonScanFrame = CreateFrame("Frame")
+buttonScanFrame:Hide()
+buttonScanFrame:SetScript("OnUpdate", function(frame, elapsed)
+	frame.elapsed = frame.elapsed + elapsed
+	if frame.marks[1] and frame.elapsed >= frame.marks[1] then
+		table.remove(frame.marks, 1)
+		CleanMinimap:UpdateAddonButtons()
+	end
+	if not frame.marks[1] then
+		frame:Hide()
+	end
+end)
+function CleanMinimap:ScheduleAddonButtonScans()
+	buttonScanFrame.elapsed = 0
+	buttonScanFrame.marks = { 1, 5, 15 }
+	buttonScanFrame:Show()
 end
 
 -- Keep the Dungeon Finder status popup (LFDSearchStatus, the "Assembling
@@ -676,6 +819,7 @@ function CleanMinimap:SetIconScale(table, size)
 	MiniMapBattlefieldIcon:SetWidth(self.db.profile.IconScale + 14);
 	self:UpdateLFGFrame()
 	self:UpdateCalendar()
+	self:UpdateAddonButtons()
 	self:UpdateLayout()
 end
 
@@ -776,6 +920,9 @@ function CleanMinimap:OnInitialize()
 	self:UpdateLFGFrame()
 	--Calendar button, in its slot below the eye.
 	self:UpdateCalendar()
+	--Other addons' minimap buttons that already exist (more are picked up
+	--after loading screens and as addons load).
+	self:UpdateAddonButtons()
 	if LFDSearchStatus then
 		LFDSearchStatus:SetParent(UIParent)
 		LFDSearchStatus:SetFrameStrata("TOOLTIP")
@@ -848,6 +995,8 @@ function CleanMinimap:OnEnable()
 	self:RegisterEvent("ZONE_CHANGED")
 	self:RegisterEvent("ZONE_CHANGED_INDOORS")
 	self:RegisterEvent("MINIMAP_UPDATE_ZOOM")
+	-- Addons loading later may add minimap buttons.
+	self:RegisterEvent("ADDON_LOADED")
 end
 
 function CleanMinimap:OnDisable()
@@ -864,6 +1013,12 @@ function CleanMinimap:PLAYER_ENTERING_WORLD()
 	self:UpdateLayout()
 	self:PositionAuraFrames()
 	self:UpdateAlpha()
+	self:UpdateAddonButtons()
+	self:ScheduleAddonButtonScans()
+end
+
+function CleanMinimap:ADDON_LOADED()
+	self:ScheduleAddonButtonScans()
 end
 
 function CleanMinimap:ZONE_CHANGED_NEW_AREA()

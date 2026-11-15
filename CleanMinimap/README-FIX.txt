@@ -1,4 +1,14 @@
-CleanMinimap 1.6.7 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+CleanMinimap 1.6.8 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+
+What changed in 1.6.8
+---------------------
+- Other addons' round minimap buttons (LibDBIcon buttons, and buttons with
+  Blizzard's standard gold-ring border) follow the "Icon size" option, the
+  same size as the calendar, instead of growing with the minimap scale. Each
+  keeps the position its addon gives it and can still be dragged. Buttons an
+  addon already scales itself, and protected buttons, are left alone. A new
+  option, "Resize addon minimap buttons", turns this off. Icons drawn inside
+  the map (quest objectives, gathering nodes) are sized by their own addons.
 
 What changed in 1.6.7
 ---------------------
