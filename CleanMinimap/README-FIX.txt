@@ -1,4 +1,16 @@
-CleanMinimap 1.7.2 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+CleanMinimap 1.7.3 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+
+What changed in 1.7.3
+---------------------
+- The world map no longer jumps to your zone while you're browsing it. On
+  every zone change CleanMinimap puts the game's map on your new zone, so
+  its coordinates keep working, and it did that even with the world map
+  open: on a flight it pulled the map back to you at every zone you passed
+  through. It now leaves the map alone while the world map is open.
+  Blizzard's world map puts the game's map back on your zone when it
+  closes, so the coordinates still come right. While the world map shows a
+  zone you're not in, the coordinates read 0,0 until you close it, as they
+  always have when browsing.
 
 What changed in 1.7.2
 ---------------------

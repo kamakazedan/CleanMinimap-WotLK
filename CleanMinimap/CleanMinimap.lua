@@ -1371,7 +1371,14 @@ function CleanMinimap:ADDON_LOADED(event, name)
 end
 
 function CleanMinimap:ZONE_CHANGED_NEW_AREA()
-	SetMapToCurrentZone()
+	-- Put the game's map on the new zone, so the coordinates
+	-- (GetPlayerMapPosition) work there. Not while the world map is open,
+	-- though: that pulls it away from whatever you're looking at, at every
+	-- zone you pass through on a flight. Blizzard's world map puts the game's
+	-- map back on your zone itself when it closes (WorldMapFrame_OnHide).
+	if not (WorldMapFrame and WorldMapFrame:IsShown()) then
+		SetMapToCurrentZone()
+	end
 	self:UpdateAlpha()
 end
 

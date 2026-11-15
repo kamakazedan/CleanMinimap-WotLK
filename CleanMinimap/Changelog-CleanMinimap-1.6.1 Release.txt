@@ -74,3 +74,6 @@ CleanMinimap 1.7.1 fixed build (WoW 3.3.5a)
 
 CleanMinimap 1.7.2 fixed build (WoW 3.3.5a)
  - Took over dragging for other addons' minimap buttons so every icon follows the cursor the same way at any minimap scale, and saved where each button is left by name.
+
+CleanMinimap 1.7.3 fixed build (WoW 3.3.5a)
+ - Stopped moving the game's map to the player's zone on zone changes while the world map is open, which snapped it back during flights while browsing; Blizzard's world map resets it when it closes.
