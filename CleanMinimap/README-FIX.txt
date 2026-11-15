@@ -1,4 +1,23 @@
-CleanMinimap 1.7.0 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+CleanMinimap 1.7.1 - minimap, aura and Dungeon Finder position/scale fix for WoW 3.3.5a
+
+What changed in 1.7.1
+---------------------
+- Map markers (quest objectives, gathering nodes, waypoints and other
+  addons' pins) no longer cover the minimap's icons or draw across its
+  border. Blizzard draws the minimap and every marker on it in the
+  BACKGROUND strata, where each addon picks its own frame level, so a marker
+  could land on top of the calendar or across the ring. CleanMinimap now
+  puts what it draws round the map one strata up (LOW): the border, then the
+  north marker, clock, zone name and dungeon difficulty flag, then every
+  icon. Markers slide under the border and never cover an icon, and bags
+  and windows (MEDIUM) still cover the minimap as before. Other addons'
+  buttons join the icon layer while "Tidy addon minimap buttons" is on and
+  get their own layer back when it's off.
+- Fixed a Lua error (LibDBIcon-1.0.lua:184, "attempt to index local
+  'quadTable'") when dragging an addon's minimap button, such as Questie's,
+  in round mode. GetMinimapShape() answered "CIRCULAR", which isn't one of
+  the standard shape names LibDBIcon knows; it now answers "ROUND". The bug
+  dates back to the original 1.6.2.
 
 What changed in 1.7.0
 ---------------------

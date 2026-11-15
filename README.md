@@ -16,6 +16,8 @@ The settings are under **Interface → AddOns → CleanMinimap**.
 - The zone name sits just above the map, centred on it, with no box behind it, in square and round mode.
 - The border stays the thickness it has at 100% however large you make the minimap. Round mode uses a thin black ring to match the square border, instead of Blizzard's gold frame.
 - Every minimap icon sits on the minimap's border and is the same size, set by **Icon size**: tracking, mail, battleground, Dungeon Finder, the calendar, and other addons' round buttons (LibDBIcon buttons and others with the standard gold ring). Drag any of them round the border to move it. CleanMinimap saves where Blizzard's icons go, and each addon still saves its own button. **Tidy addon minimap buttons** hands other addons' buttons back to them. Icons drawn inside the map, such as quest objectives, are sized by their own addons.
+- Markers other addons draw on the map, such as quest objectives, gathering nodes and waypoints, stay under the border and under every icon instead of covering them. Bags and windows still cover the minimap as usual.
+- Dragging an addon's minimap button in round mode no longer causes a Lua error. 1.6.2 described the round minimap to other addons with a shape name that LibDBIcon doesn't recognise.
 - Blizzard's calendar button is shown (1.6.2 hid it); **Show calendar** turns it off.
 - The Dungeon Finder's "Assembling Group..." popup is drawn at normal size instead of at the minimap's scale.
 - New options: **Show border** turns the border off, and **Minimap opacity** makes the minimap see-through. In buildings, dungeons and cities such as Orgrimmar it stays fully opaque, because the game can't draw those maps see-through.

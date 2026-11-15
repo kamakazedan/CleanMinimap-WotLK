@@ -170,7 +170,7 @@ function GetMinimapShape()
 	return shape;
 end
 
--- Backdrop for the black square border (CleanMinimapFrame). UpdateBorder()
+-- Backdrop for the black square border (borderFrame). UpdateBorder()
 -- adjusts edgeSize and insets to suit the minimap scale.
 local backdrop = {
 	bgFile = "Interface\\ChatFrame\\ChatFrameBackground", tile =true, tileSize =4,
@@ -186,6 +186,63 @@ local backdropmail = {
 
 local CleanMinimapFrame = CreateFrame("Frame", nil, Minimap);
 local loc, text, track;
+
+-- Layers. Blizzard draws the whole minimap in the BACKGROUND strata, and the
+-- markers addons put on the map (quest objectives, gathering nodes,
+-- waypoints) are children of the map there, each at whatever frame level its
+-- addon picks, often above Blizzard's own buttons and the border. Everything
+-- CleanMinimap puts round the map goes one strata up instead, which is above
+-- any frame level down there and still under bags and windows (MEDIUM):
+-- first the border, then the north marker, clock, zone name and dungeon
+-- difficulty flag, then the icons. So markers slide under the border and
+-- never cover an icon.
+local LAYER_STRATA = "LOW"
+local BORDER_LEVEL = 2
+local FURNITURE_LEVEL = 5
+local ICON_LEVEL = 10
+local strataOrder = {
+	BACKGROUND = 1, LOW = 2, MEDIUM = 3, HIGH = 4, DIALOG = 5,
+	FULLSCREEN = 6, FULLSCREEN_DIALOG = 7, TOOLTIP = 8,
+}
+-- Frames in the icon layer. Layering anything else leaves them alone, so the
+-- tracking and Dungeon Finder icons (children of MinimapBackdrop) stay above
+-- the furniture.
+local iconFrames = {}
+
+-- A frame and the child frames that move with it, each with its level
+-- relative to the frame's, every child kept above its parent. Protected
+-- frames, icons, and children deliberately put in a higher strata than their
+-- parent (popups and menus) are left out.
+local function CollectLayer(frame, rel, base, frames, offsets)
+	frames[#frames + 1] = frame
+	offsets[#offsets + 1] = rel
+	local strata = strataOrder[frame:GetFrameStrata()] or 0
+	for _, child in ipairs({ frame:GetChildren() }) do
+		if not iconFrames[child] and not child:IsProtected()
+				and (strataOrder[child:GetFrameStrata()] or 0) <= strata then
+			CollectLayer(child, math.max(rel + 1, child:GetFrameLevel() - base), base, frames, offsets)
+		end
+	end
+end
+
+-- Put a frame, with its child frames, in a strata at a frame level.
+local function SetLayer(frame, strata, level)
+	if not frame or frame:IsProtected() then
+		return
+	end
+	local frames, offsets = {}, {}
+	CollectLayer(frame, 0, frame:GetFrameLevel(), frames, offsets)
+	for i, f in ipairs(frames) do
+		f:SetFrameStrata(strata)
+		f:SetFrameLevel(level + offsets[i])
+	end
+end
+
+-- The square bezel or round ring is drawn on a frame of its own, in the
+-- border layer. CleanMinimapFrame, which catches the mouse wheel over the
+-- map, stays down with the map, so it never takes a marker's mouse-over.
+local borderFrame = CreateFrame("Frame", nil, Minimap)
+borderFrame:SetAllPoints(CleanMinimapFrame)
 
 -- Layout. These gaps stay the same on screen at every minimap scale, so they
 -- are in UIParent units and get divided by the scale before use.
@@ -220,7 +277,7 @@ do
 		{ "TOPRIGHT",    1, 0, 1, 0 },  -- bottom-left
 	}
 	for i, q in ipairs(quads) do
-		local tex = CleanMinimapFrame:CreateTexture(nil, "ARTWORK")
+		local tex = borderFrame:CreateTexture(nil, "ARTWORK")
 		tex:SetPoint(q[1], Minimap, "CENTER", 0, 0)
 		-- Kept so they can be re-applied after each SetTexture.
 		tex.l, tex.r, tex.t, tex.b = q[2], q[3], q[4], q[5]
@@ -387,6 +444,11 @@ local ownIcons = {
 	lfg = { frame = "MiniMapLFGFrame", footprint = 33 },
 	calendar = { frame = "GameTimeFrame", footprint = 34 },
 }
+for _, info in pairs(ownIcons) do
+	if _G[info.frame] then
+		iconFrames[_G[info.frame]] = true
+	end
+end
 
 function CleanMinimap:PlaceOwnIcon(key)
 	local info = ownIcons[key]
@@ -402,7 +464,13 @@ function CleanMinimap:PlaceOwnIcon(key)
 end
 
 function CleanMinimap:UpdateOwnIcons()
-	for key in pairs(ownIcons) do
+	for key, info in pairs(ownIcons) do
+		-- In the icon layer, above the map's markers.
+		local frame = _G[info.frame]
+		if frame then
+			iconFrames[frame] = true
+			SetLayer(frame, LAYER_STRATA, ICON_LEVEL)
+		end
 		self:PlaceOwnIcon(key)
 	end
 	if GameTimeFrame and self.db and self.db.profile then
@@ -613,6 +681,20 @@ function CleanMinimap:PlaceAddonButtons()
 	end
 end
 
+-- Stop managing a button: back to its normal size, and to the layer it had
+-- unless something (such as an addon that collects minimap buttons into a
+-- bag) has given it another since.
+local function DropAddonButton(button)
+	addonButtons[button] = nil
+	iconFrames[button] = nil
+	button:SetScale(1)
+	local strata, level = button.cleanMinimapStrata, button.cleanMinimapLevel
+	button.cleanMinimapStrata, button.cleanMinimapLevel = nil, nil
+	if strata and button:GetFrameStrata() == LAYER_STRATA and button:GetFrameLevel() == ICON_LEVEL then
+		SetLayer(button, strata, level)
+	end
+end
+
 -- Hooked onto each button's SetPoint: its addon has just placed it (on load,
 -- or while you drag it round the map), so note what it asked for and put it
 -- on the border in that direction.
@@ -626,8 +708,7 @@ local function OnAddonButtonSetPoint(button, point, relativeTo, relativePoint, x
 	end
 	if not minimapParents[button:GetParent()] then
 		-- Moved off the minimap (e.g. into a button-bag addon): let it go.
-		addonButtons[button] = nil
-		button:SetScale(1)
+		DropAddonButton(button)
 		return
 	end
 	local angle = RequestedAngle(button, point, relativeTo, relativePoint, x, y)
@@ -671,16 +752,23 @@ local function ManageAddonButton(button, k)
 			button.cleanMinimapAngle = RequestedAngle(button, point, relativeTo, relativePoint, x, y) or button.cleanMinimapAngle
 		end
 		button.cleanMinimapAngle = button.cleanMinimapAngle or math.rad(225)
+		-- Kept to give back if the button is ever handed back.
+		button.cleanMinimapStrata, button.cleanMinimapLevel = button:GetFrameStrata(), button:GetFrameLevel()
 	end
 	addonButtons[button] = k
+	iconFrames[button] = true
 	button:SetScale(k)
+	-- In the icon layer with CleanMinimap's own icons, above the map's
+	-- markers. (LibDBIcon's own choice is MEDIUM, the strata bags and
+	-- windows use, so its buttons could show through them.)
+	SetLayer(button, LAYER_STRATA, ICON_LEVEL)
 	CleanMinimap:PlaceAddonButton(button)
 end
 
--- Hand a button back to its addon: normal size, where its addon last put it.
+-- Hand a button back to its addon: normal size and layer, where its addon
+-- last put it.
 local function ReleaseAddonButton(button)
-	addonButtons[button] = nil
-	button:SetScale(1)
+	DropAddonButton(button)
 	local r = button.cleanMinimapRequested
 	if r and r[1] then
 		button.cleanMinimapMoving = true
@@ -699,8 +787,7 @@ function CleanMinimap:UpdateAddonButtons()
 		if not on then
 			ReleaseAddonButton(button)
 		elseif not minimapParents[button:GetParent()] then
-			addonButtons[button] = nil
-			button:SetScale(1)
+			DropAddonButton(button)
 		end
 	end
 	if not on then
@@ -752,6 +839,20 @@ function CleanMinimap:UpdateLFDSearchStatusScale()
 	end
 end
 
+-- The border layer and, above it, the furniture: MinimapBackdrop (which
+-- holds the north marker, and the compass ring when the minimap rotates),
+-- the clock, the zone name and the dungeon difficulty flag. They overlap the
+-- border, so they go over it, as before. The icons go above all of these
+-- (UpdateOwnIcons and ManageAddonButton). The clock comes with Blizzard's
+-- load-on-demand clock addon, so this runs again when that loads.
+local furnitureFrames = { "MinimapBackdrop", "TimeManagerClockButton", "MinimapZoneTextButton", "MiniMapInstanceDifficulty" }
+function CleanMinimap:UpdateLayers()
+	SetLayer(borderFrame, LAYER_STRATA, BORDER_LEVEL)
+	for _, name in ipairs(furnitureFrames) do
+		SetLayer(_G[name], LAYER_STRATA, FURNITURE_LEVEL)
+	end
+end
+
 -- Square or round: map mask, the shape other addons ask for, coordinates and
 -- clock. Blizzard's round border and zone-name bar are replaced by our own
 -- border in both shapes.
@@ -768,7 +869,11 @@ function CleanMinimap:ApplyShape()
 		text:SetWidth(60)
 		loc:SetPoint("BOTTOMLEFT", Minimap, "BOTTOMLEFT", 0, 0)
 	else
-		shape = "CIRCULAR"
+		-- GetMinimapShape must answer with one of the standard names
+		-- ("ROUND", "SQUARE", "CORNER-TOPLEFT", ...). LibDBIcon looks the
+		-- name up in its own table and errors on any other, so dragging an
+		-- addon's button failed in round mode when this said "CIRCULAR".
+		shape = "ROUND"
 		Minimap:SetMaskTexture("Textures\\MinimapMask")
 		loc:SetWidth(Minimap:GetWidth())
 		text:SetWidth(Minimap:GetWidth())
@@ -798,11 +903,11 @@ function CleanMinimap:UpdateBorder(f)
 		backdrop.insets.top = 4 * f
 		backdrop.insets.bottom = 4 * f
 		-- SetBackdrop resets the colours, so set them again every time.
-		CleanMinimapFrame:SetBackdrop(backdrop)
-		CleanMinimapFrame:SetBackdropColor(0,0,0,0)
-		CleanMinimapFrame:SetBackdropBorderColor(0,0,0,0.6)
+		borderFrame:SetBackdrop(backdrop)
+		borderFrame:SetBackdropColor(0,0,0,0)
+		borderFrame:SetBackdropBorderColor(0,0,0,0.6)
 	else
-		CleanMinimapFrame:SetBackdrop(nil)
+		borderFrame:SetBackdrop(nil)
 	end
 
 	if p.ShowBorder and not p.UseSquare then
@@ -922,6 +1027,7 @@ function CleanMinimap:UpdateLayout()
 
 	self:PositionAuraFrames()
 	self:UpdateLFDSearchStatusScale()
+	self:UpdateLayers()
 	self:UpdateOwnIcons()
 	self:PlaceAddonButtons()
 end
@@ -1167,7 +1273,12 @@ function CleanMinimap:PLAYER_ENTERING_WORLD()
 	self:ScheduleAddonButtonScans()
 end
 
-function CleanMinimap:ADDON_LOADED()
+function CleanMinimap:ADDON_LOADED(event, name)
+	if name == "Blizzard_TimeManager" then
+		-- Blizzard's clock has just been created.
+		self:UpdateLayers()
+		self:UpdateOwnIcons()
+	end
 	self:ScheduleAddonButtonScans()
 end
 
